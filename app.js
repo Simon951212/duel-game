@@ -1150,6 +1150,105 @@ function copyShareLink() {
   }
 }
 
+/* ========== 金霸王挑战 ========== */
+function challengeJinbaKing() {
+  // 生成金霸王最强阵容
+  const jinbaSlots = generateJinbaKingTeam();
+  const jinbaResult = calcRecord(jinbaSlots);
+
+  // 如果用户还没创建队伍，提示先创建
+  if (!game.slots || !POS_ORDER.every(pos => game.slots[pos])) {
+    // 自动生成一个随机队伍作为玩家队伍
+    startGame();
+    // 等待游戏初始化完成后再挑战
+    setTimeout(() => {
+      const myResult = calcRecord(game.slots);
+      startChallengeDirect(game.slots, myResult, jinbaSlots, jinbaResult, '金霸王');
+    }, 100);
+    return;
+  }
+
+  const myResult = calcRecord(game.slots);
+  startChallengeDirect(game.slots, myResult, jinbaSlots, jinbaResult, '金霸王');
+}
+
+function generateJinbaKingTeam() {
+  const slots = { PG: null, SG: null, SF: null, PF: null, C: null };
+
+  // 获取金霸王所有球员
+  const jinbaPlayers = [];
+  for (const decade of Object.keys(NBA_DATA || {}).filter(d => ALLOWED_ERAS.includes(d))) {
+    const players = (NBA_DATA || {})[decade]?.['金霸王'] || [];
+    for (const p of players) {
+      jinbaPlayers.push({
+        ...p,
+        decade,
+        team: '金霸王',
+        positions: p.positions?.length ? p.positions : (p.pos ? p.pos.split('/') : []),
+      });
+    }
+  }
+
+  // 按评分排序，选每个位置最强的
+  const posMap = { PG: [], SG: [], SF: [], PF: [], C: [] };
+  for (const p of jinbaPlayers) {
+    for (const pos of p.positions) {
+      if (posMap[pos]) {
+        posMap[pos].push(p);
+      }
+    }
+  }
+
+  for (const pos of POS_ORDER) {
+    const candidates = posMap[pos];
+    if (candidates && candidates.length > 0) {
+      // 按综合评分排序（pts + reb + ast）
+      candidates.sort((a, b) => {
+        const scoreA = (a.stats?.pts || 0) + (a.stats?.reb || 0) + (a.stats?.ast || 0);
+        const scoreB = (b.stats?.pts || 0) + (b.stats?.reb || 0) + (b.stats?.ast || 0);
+        return scoreB - scoreA;
+      });
+      const best = candidates[0];
+      slots[pos] = {
+        name: best.name,
+        enName: best.enName || best.name,
+        pos: best.pos,
+        positions: best.positions,
+        team: '金霸王',
+        decade: best.decade,
+        pts: best.stats?.pts || 0,
+        reb: best.stats?.reb || 0,
+        ast: best.stats?.ast || 0,
+        stl: best.stats?.stl || 0,
+        blk: best.stats?.blk || 0,
+        assignedPos: pos,
+      };
+    }
+  }
+
+  return slots;
+}
+
+function startChallengeDirect(mySlots, myResult, cpuSlots, cpuResult, cpuName) {
+  challengeState = {
+    mySlots: { ...mySlots },
+    myResult,
+    cpuSlots: { ...cpuSlots },
+    cpuResult,
+    myWins: 0,
+    cpuWins: 0,
+    games: [],
+    currentGame: 0,
+    isSharedOpponent: false,
+    cpuName: cpuName || '对手',
+  };
+
+  showScreen('screen-challenge');
+  renderChallengeVS(cpuResult, cpuName);
+  renderChallengeGames();
+  setTimeout(simulateNextGame, 500);
+}
+
 // ==================== CHALLENGE MODE ====================
 function openTeamSelect() {
   showScreen('screen-select');
@@ -1254,9 +1353,10 @@ function startChallengeWithTeam(cpuSlots) {
     currentGame: 0,
     myWins: 0,
     cpuWins: 0,
+    cpuName: '对手',
   };
 
-  renderChallengeVS(cpuResult);
+  renderChallengeVS(cpuResult, '对手队伍');
   renderChallengeGames();
   setTimeout(simulateNextGame, 500);
 }
@@ -1387,10 +1487,11 @@ function startChallengeAgainst(opponent) {
     games: [],
     currentGame: 0,
     isSharedOpponent: true,
+    cpuName: '对手',
   };
 
   showScreen('screen-challenge');
-  renderChallengeVS(oppResult);
+  renderChallengeVS(oppResult, '对手队伍');
   renderChallengeGames();
   setTimeout(simulateNextGame, 500);
 }
@@ -1453,11 +1554,11 @@ function startChallenge() {
   openTeamSelect();
 }
 
-function renderChallengeVS(cpuResult) {
+function renderChallengeVS(cpuResult, cpuName) {
   const myDiv = document.getElementById('challengeMyTeam');
   const cpuDiv = document.getElementById('challengeCpuTeam');
 
-  function renderMiniTeam(slots, result) {
+  function renderMiniTeam(slots, result, isCpu) {
     const playersHtml = POS_ORDER.map(pos => {
       const p = slots[pos];
       if (!p) return '';
@@ -1471,7 +1572,7 @@ function renderChallengeVS(cpuResult) {
   }
 
   myDiv.innerHTML = `<div style="color:var(--blue-3d);font-size:12px;margin-bottom:4px;">你的队伍</div>${renderMiniTeam(challengeState.mySlots, challengeState.myResult)}`;
-  cpuDiv.innerHTML = `<div style="color:var(--red-3d);font-size:12px;margin-bottom:4px;">对手队伍</div>${renderMiniTeam(challengeState.cpuSlots, cpuResult)}`;
+  cpuDiv.innerHTML = `<div style="color:var(--red-3d);font-size:12px;margin-bottom:4px;">${cpuName || '对手队伍'}</div>${renderMiniTeam(challengeState.cpuSlots, cpuResult, true)}`;
 }
 
 function simulateNextGame() {
@@ -1595,6 +1696,7 @@ function renderChallengeGames() {
 function renderChallengeFinal() {
   const resultDiv = document.getElementById('challengeResult');
   const myWin = challengeState.myWins >= 4;
+  const cpuName = challengeState.cpuName || '对手';
 
   const winningSlots = myWin ? challengeState.mySlots : challengeState.cpuSlots;
   const mvp = selectMVP(winningSlots);
@@ -1605,7 +1707,7 @@ function renderChallengeFinal() {
       ${myWin ? '🏆 挑战成功!' : '💔 挑战失败'}
     </div>
     <div style="font-size:18px;color:var(--text-secondary);">
-      ${myWin ? `${challengeState.myWins}-${challengeState.cpuWins} 击败对手!` : `${challengeState.myWins}-${challengeState.cpuWins} 惜败对手`}
+      ${myWin ? `${challengeState.myWins}-${challengeState.cpuWins} 击败${cpuName}!` : `${challengeState.myWins}-${challengeState.cpuWins} 惜败${cpuName}`}
     </div>
     ${mvp ? `<div style="margin:16px 0;padding:12px;background:rgba(243,156,18,0.1);border-radius:12px;border:1px solid var(--gold);">
       <div style="font-size:14px;color:var(--gold);font-weight:700;">🏆 系列赛MVP:${mvp.name.split('-').pop()}</div>
@@ -1615,6 +1717,7 @@ function renderChallengeFinal() {
     <div class="result-buttons-group" style="margin-top:16px;">
       <button class="btn-3d orange" onclick="startGame()">🔄 重新创建队伍</button>
       <button class="btn-3d dark" onclick="startChallenge()">⚔️ 再来一局挑战</button>
+      <button class="btn-3d dark" onclick="challengeJinbaKing()">👑 再挑战金霸王</button>
       <button class="btn-3d dark" onclick="showScreen('screen-home')">🏠 首页</button>
     </div>
   `;
