@@ -57,7 +57,7 @@ async function apiCall(path, options = {}) {
     });
     return res.json();
   } catch (e) {
-    console.warn('API call failed:', e);
+    console.error('API call failed:', e);
     return null;
   }
 }
@@ -111,6 +111,11 @@ const MVP_HIGHLIGHTS = {
 };
 
 function selectMVP(winningSlots) {
+  // 确保 winningSlots 是对象
+  if (!winningSlots || typeof winningSlots !== 'object') {
+    console.error('Invalid winningSlots in selectMVP');
+    return null;
+  }
   const players = Object.values(winningSlots).filter(Boolean);
   if (players.length === 0) return null;
   const sorted = [...players].sort((a, b) => {
@@ -122,7 +127,11 @@ function selectMVP(winningSlots) {
 }
 
 function generateMVPHighlight(mvp, games) {
-  if (!mvp) return '本场比赛表现出色的球员获得了MVP称号!';
+  if (!mvp || typeof mvp !== 'object') return '本场比赛表现出色的球员获得了MVP称号!';
+  // 确保 games 是数组
+  if (!games || !Array.isArray(games) || games.length === 0) {
+    return mvp.name ? (mvp.name + ' 表现出色，获得MVP！') : '本场比赛表现出色的球员获得了MVP称号!';
+  }
   const diff = Math.abs(games[games.length-1].myPts - games[games.length-1].cpuPts);
   const myWin = challengeState.myWins >= 4;
   const winnerGames = games.filter(g => myWin ? g.myWin : !g.myWin);
@@ -160,7 +169,10 @@ function generateMVPHighlight(mvp, games) {
 }
 
 function showMVPModal(mvp, highlight) {
-  if (!mvp) return;
+  if (!mvp || typeof mvp !== 'object') {
+    console.error('Invalid MVP data in showMVPModal');
+    return;
+  }
   const overlay = document.getElementById('mvpOverlay');
   const mvpName = document.getElementById('mvpPlayerName');
   const mvpTeam = document.getElementById('mvpPlayerTeam');
@@ -208,12 +220,35 @@ const REPORT_TEMPLATES = {
 };
 
 function generateGameReport(g) {
+  // 确保 g 是对象
+  if (!g || typeof g !== 'object') {
+    console.error('Invalid game data in generateGameReport');
+    return '比赛数据异常';
+  }
+  // Ensure required properties exist
+  if (typeof g.myPts !== 'number' || typeof g.cpuPts !== 'number') {
+    console.error('Missing scores in generateGameReport');
+    return '比分数据异常';
+  }
   const diff = Math.abs(g.myPts - g.cpuPts);
   const winner = g.myWin ? '你' : '对手';
   const loser = g.myWin ? '对手' : '你';
   const score = `${g.myPts}-${g.cpuPts}`;
-  const winnerTeam = g.myWin ? g.myTeam : g.cpuTeam;
-  const star = getStarPlayer(winnerTeam);
+  
+  // 获取获胜方的球队数据，优先使用 challengeState 中的真实数据
+  let winnerTeam = null;
+  let winnerSlots = null;
+  
+  if (challengeState) {
+    winnerSlots = g.myWin ? challengeState.mySlots : challengeState.cpuSlots;
+  }
+  
+  // 如果 challengeState 中没有，尝试使用 g 中的数据
+  if (!winnerSlots && g.myTeam) {
+    winnerTeam = g.myTeam;
+  }
+  
+  const star = getStarPlayer(winnerSlots || winnerTeam);
 
   let template;
   if (diff <= 3 && Math.random() < 0.4) {
@@ -248,14 +283,49 @@ function generateGameReport(g) {
 }
 
 function getStarPlayer(team) {
-  const players = Object.values(team).filter(Boolean);
-  if (players.length === 0) return { name: '某球员', pts: 25, reb: 8, ast: 6 };
-  const sorted = [...players].sort((a, b) =>
-    ((b.pts||0)+(b.reb||0)*0.8+(b.ast||0)*0.6) - ((a.pts||0)+(a.reb||0)*0.8+(a.ast||0)*0.6)
-  );
+  // 确保 team 是对象
+  if (!team || typeof team !== 'object') {
+    console.error('Invalid team in getStarPlayer');
+    return { name: '某球员', pts: 25, reb: 8, ast: 6 };
+  }
+  
+  // 如果传入的是 slots 对象（带位置键），提取球员数组
+  let players = [];
+  if (team.PG || team.SG || team.SF || team.PF || team.C) {
+    // 这是 slots 对象，按位置提取
+    players = POS_ORDER.map(pos => team[pos]).filter(Boolean);
+  } else {
+    // 普通对象，直接取 values
+    players = Object.values(team).filter(Boolean);
+  }
+  
+  if (players.length === 0) {
+    console.error('No players in team for getStarPlayer');
+    return { name: '某球员', pts: 25, reb: 8, ast: 6 };
+  }
+  
+  // 过滤掉 name 为 '某球员' 的占位符，优先使用真实球员
+  const realPlayers = players.filter(p => p.name && p.name !== '某球员');
+  const targetPlayers = realPlayers.length > 0 ? realPlayers : players;
+  
+  // 按综合数据排序（pts + reb*0.8 + ast*0.6）
+  const sorted = [...targetPlayers].sort((a, b) => {
+    const scoreA = (a.pts||0) + (a.reb||0)*0.8 + (a.ast||0)*0.6;
+    const scoreB = (b.pts||0) + (b.reb||0)*0.8 + (b.ast||0)*0.6;
+    return scoreB - scoreA;
+  });
+  
   const s = sorted[0];
+  
+  // 确保返回真实球员名，如果没有名字则使用位置+编号
+  let playerName = s.name;
+  if (!playerName || playerName === '某球员') {
+    // 尝试使用 enName
+    playerName = s.enName || s.player || '球员';
+  }
+  
   return {
-    name: s.name,
+    name: playerName,
     pts: Math.round((s.pts||25) + (Math.random()-0.5)*10),
     reb: Math.round((s.reb||8) + (Math.random()-0.5)*4),
     ast: Math.round((s.ast||6) + (Math.random()-0.5)*4),
@@ -266,8 +336,9 @@ function getStarPlayer(team) {
 let NBA_DATA = null;
 
 (function loadData() {
-  if (typeof NBA_DATA_RAW === 'undefined') {
-    console.error('NBA_DATA_RAW not loaded');
+  // Ensure NBA_DATA_RAW is available globally
+  if (typeof NBA_DATA_RAW === 'undefined' || !NBA_DATA_RAW || !Array.isArray(NBA_DATA_RAW)) {
+    console.error('NBA_DATA_RAW not loaded or invalid');
     document.addEventListener('DOMContentLoaded', () => {
       const app = document.querySelector('.app-container');
       if (app) {
@@ -287,6 +358,10 @@ let NBA_DATA = null;
   }
 
   try {
+    if (!NBA_DATA_RAW || NBA_DATA_RAW.length === 0) {
+      console.error('NBA_DATA_RAW is empty');
+      return;
+    }
     const result = {};
     NBA_DATA_RAW.forEach(p => {
       const era = p.era;
@@ -353,7 +428,7 @@ const TEAM_CN = {
   MIA: "热火", MIL: "雄鹿", MIN: "森林狼", NOP: "鹈鹕", NYK: "尼克斯",
   OKC: "雷霆", ORL: "魔术", PHI: "76人", PHX: "太阳", POR: "开拓者",
   SAC: "国王", SAS: "马刺", TOR: "猛龙", UTA: "爵士", WAS: "奇才",
-  "金霸虎": "金霸虎"
+  "金霸王": "金霸王"
 };
 
 const TEAM_COLORS = {
@@ -367,7 +442,7 @@ const TEAM_COLORS = {
   "ORL": ["#3053ad","#3053ae"],"PHI": ["#3063b0","#2f61af"],"PHX": ["#f6ca57","#c86d36"],
   "POR": ["#ab2f32","#6a1d1f"],"SAC": ["#55277f","#3a0e63"],"SAS": ["#c7cdd4","#34393d"],
   "TOR": ["#a2a2a4","#b12a32"],"UTA": ["#15203e","#14223e"],"WAS": ["#16213d","#bd2a33"],
-  "金霸虎": ["#d4a017","#1a1a2e"]
+  "金霸王": ["#d4a017","#1a1a2e"]
 };
 
 const TEAM_GRADE_BANDS = [
@@ -423,7 +498,10 @@ function getPositions(posStr) {
 // ==================== PARTICLES ====================
 function initParticles() {
   const canvas = document.getElementById('particles-canvas');
-  if (!canvas) return;
+  if (!canvas) {
+    console.error('particles-canvas not found');
+    return;
+  }
   const ctx = canvas.getContext('2d');
   let w, h, particles = [];
   let animationId = null;
@@ -475,13 +553,20 @@ function initParticles() {
 
 // ==================== SCREEN MANAGEMENT ====================
 function showScreen(id) {
+  // 确保 id 有效
+  if (!id) {
+    console.error('Invalid id in showScreen');
+    return;
+  }
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active');
 }
 
 // ==================== GAME INIT ====================
 function startGame() {
   closePoster();
+  // 确保 game 对象初始化
   game = {
     round: 0, roster: [],
     slots: { PG: null, SG: null, SF: null, PF: null, C: null },
@@ -491,6 +576,7 @@ function startGame() {
     wins: 0, losses: 0, grade: '', tier: '',
   };
   pendingPick = null; moveState = null;
+  challengeState = null;
   showScreen('screen-game');
   renderRosterBar();
   nextRound();
@@ -499,6 +585,10 @@ function startGame() {
 // ==================== ROSTER BAR ====================
 function renderRosterBar() {
   const bar = document.getElementById('rosterBar');
+  if (!bar) {
+    console.error('rosterBar not found');
+    return;
+  }
   const topRow = ['PG', 'SG'];
   const bottomRow = ['SF', 'C', 'PF'];
 
@@ -536,6 +626,12 @@ function renderRosterBar() {
 
 // ==================== ROUND PROGRESSION ====================
 function nextRound() {
+  // 确保 game 对象存在
+  if (!game || !game.slots) {
+    console.error('No game state in nextRound');
+    startGame();
+    return;
+  }
   if (game.round >= MAX_ROUNDS) { runSimulation(); return; }
   game.spun = false;
   game.currentTeam = null;
@@ -558,7 +654,18 @@ function nextRound() {
 
 // ==================== SLOT MACHINE ====================
 function spinSlot() {
+  // 确保 NBA_DATA 已加载
+  if (!NBA_DATA || Object.keys(NBA_DATA).length === 0) {
+    console.error('NBA_DATA not loaded');
+    return;
+  }
   if (game.spun) return;
+  // 确保 NBA_DATA 已加载
+  if (!NBA_DATA || Object.keys(NBA_DATA).length === 0) {
+    console.error('NBA_DATA not loaded in spinSlot');
+    document.getElementById('playerHint').textContent = '数据加载中，请稍候...';
+    return;
+  }
   const spinBtn = document.getElementById('spinBtn');
   spinBtn.disabled = true;
   spinBtn.textContent = '🎰 转动中...';
@@ -577,7 +684,11 @@ function spinSlot() {
   const spinInterval = setInterval(() => {
     const randDecade = allDecades[Math.floor(Math.random() * allDecades.length)];
     const decadeTeams = Object.keys((NBA_DATA || {})[randDecade] || {});
-    const randTeam = decadeTeams[Math.floor(Math.random() * decadeTeams.length)];
+    // 老虎机滚动效果：2010s/2020s 金霸王概率 10%
+    const isBoostEra = randDecade === '2010s' || randDecade === '2020s';
+    const randTeam = isBoostEra && decadeTeams.includes('金霸王') && Math.random() < 0.1
+      ? '金霸王'
+      : decadeTeams[Math.floor(Math.random() * decadeTeams.length)];
     teamText.textContent = teamCN(randTeam);
     decadeText.textContent = randDecade;
     spinCount++;
@@ -608,8 +719,14 @@ function spinSlot() {
 }
 
 function getSlotResult() {
+  // 确保 game 存在
+  if (!game) {
+    console.error('No game state in getSlotResult');
+    return { team: 'LAL', decade: '2020s' };
+  }
   const usedSet = new Set(game.usedCombos);
   const allCombos = [];
+
   for (const decade of Object.keys(NBA_DATA || {}).filter(d => ALLOWED_ERAS.includes(d))) {
     for (const team of Object.keys((NBA_DATA || {})[decade] || {})) {
       const combo = decade + '|' + team;
@@ -628,18 +745,57 @@ function getSlotResult() {
     }
   }
 
-  return allCombos[Math.floor(Math.random() * allCombos.length)];
+  // 先随机选年代
+  const decades = [...new Set(allCombos.map(c => c.decade))];
+  const selectedDecade = decades[Math.floor(Math.random() * decades.length)];
+
+  // 获取该年代所有可用球队
+  const decadeTeams = allCombos.filter(c => c.decade === selectedDecade);
+  
+  // 确保 decadeTeams 不为空
+  if (decadeTeams.length === 0) {
+    console.error('No teams found for decade:', selectedDecade);
+    return allCombos[0] || { team: 'LAL', decade: '2020s' };
+  }
+  
+  const jinbaTeams = decadeTeams.filter(c => c.team === '金霸王');
+  const otherTeams = decadeTeams.filter(c => c.team !== '金霸王');
+
+  // 2010s 和 2020s 金霸王概率 10%
+  const isBoostEra = selectedDecade === '2010s' || selectedDecade === '2020s';
+
+  if (isBoostEra && jinbaTeams.length > 0 && otherTeams.length > 0) {
+    return Math.random() < 0.1
+      ? jinbaTeams[Math.floor(Math.random() * jinbaTeams.length)]
+      : otherTeams[Math.floor(Math.random() * otherTeams.length)];
+  }
+
+  // 其他年代或金霸王不可用，均匀随机
+  return decadeTeams[Math.floor(Math.random() * decadeTeams.length)];
 }
 
 // ==================== SKIP ====================
 function directSkip(type) {
   if (pendingPick) { pendingPick = null; renderRosterBar(); }
+  // 确保 game 状态存在
+  if (!game || !game.currentDecade || !game.currentTeam) {
+    console.error('No game state in directSkip');
+    return;
+  }
   document.getElementById('spinBtn').disabled = true;
 
   if (type === 'team' && game.skipTeam > 0) {
     game.skipTeam--;
     const decadeTeams = Object.keys(NBA_DATA[game.currentDecade] || {});
     const otherTeams = decadeTeams.filter(t => t !== game.currentTeam);
+    // 确保有其他球队可选
+    if (otherTeams.length === 0 && decadeTeams.length > 0) {
+      console.error('Only one team in this decade, cannot skip');
+      document.getElementById('playerHint').textContent = '该年代只有一支球队,无法跳过';
+      game.skipTeam++;
+      document.getElementById('skipTeamBtn').disabled = game.skipTeam <= 0;
+      return;
+    }
 
     if (otherTeams.length === 0) {
       document.getElementById('playerHint').textContent = '该年代只有一支球队,无法跳过';
@@ -685,6 +841,14 @@ function directSkip(type) {
 function animateReel(elementId, pool, formatter, callback) {
   const el = document.getElementById(elementId);
   const reel = elementId === 'teamReelText' ? document.getElementById('teamReel') : document.getElementById('decadeReel');
+  
+  // 确保 pool 不为空
+  if (!pool || pool.length === 0) {
+    console.error('Empty pool for animation:', elementId);
+    callback();
+    return;
+  }
+  
   reel.classList.add('spinning');
   let count = 0;
   const interval = setInterval(() => {
@@ -699,7 +863,11 @@ function animateReel(elementId, pool, formatter, callback) {
 }
 
 function finishSkip() {
-  game.usedCombos.push(game.currentDecade + '|' + game.currentTeam);
+  // 确保不重复添加相同的组合
+  const combo = game.currentDecade + '|' + game.currentTeam;
+  if (!game.usedCombos.includes(combo)) {
+    game.usedCombos.push(combo);
+  }
   renderRosterBar();
   document.getElementById('skipTeamBtn').disabled = game.skipTeam <= 0;
   document.getElementById('skipDecadeBtn').disabled = game.skipDecade <= 0;
@@ -709,6 +877,11 @@ function finishSkip() {
 
 // ==================== PLAYER SELECTION ====================
 function setFilterTab(tab) {
+  // 确保 tab 有效
+  if (!tab) {
+    console.error('Invalid tab in setFilterTab');
+    return;
+  }
   _filterTab = tab;
   document.querySelectorAll('.filter-tab').forEach(el => {
     el.classList.toggle('active', el.dataset.tab === tab);
@@ -720,7 +893,17 @@ function setFilterTab(tab) {
 
 function renderPlayerGrid(team, decade) {
   const grid = document.getElementById('playerGrid');
+  if (!grid) {
+    console.error('playerGrid not found');
+    return;
+  }
   if (_filterTab === 'all') {
+    // 确保 NBA_DATA 已加载
+    if (!NBA_DATA || !NBA_DATA[decade] || !NBA_DATA[decade][team]) {
+      console.error('No data for team/decade:', team, decade);
+      grid.innerHTML = '<div class="no-players"><div class="icon">😅</div><p>该球队年代暂无数据</p></div>';
+      return;
+    }
     const players = NBA_DATA[decade] ? (NBA_DATA[decade][team] || []) : [];
     let all = [...players];
     all.sort((a, b) => (b.stats.pts + b.stats.reb + b.stats.ast) - (a.stats.pts + a.stats.reb + a.stats.ast));
@@ -737,8 +920,12 @@ function renderPlayerGrid(team, decade) {
 
   if (display.length === 0) {
     grid.innerHTML = '<div class="no-players"><div class="icon">😅</div><p>该位置没有可用球员</p></div>';
-    document.getElementById('playerHint').textContent = '该位置没有可用球员';
-    return;
+    document.getElementById('playerHint').textContent = '该位置没有可用球员，请尝试其他筛选或跳过';
+    // 自动显示全部球员作为fallback
+    if (_topPool && _topPool.length > 0) {
+      display = [..._topPool].sort(() => Math.random() - 0.5);
+    }
+    if (!display || display.length === 0) return;
   }
 
   display = [...display].sort(() => Math.random() - 0.5);
@@ -758,6 +945,11 @@ function renderPlayerGrid(team, decade) {
 }
 
 function showPlayers(team, decade) {
+  // 确保 team 和 decade 有效
+  if (!team || !decade) {
+    console.error('Invalid team or decade in showPlayers:', team, decade);
+    return;
+  }
   document.getElementById('playerSection').style.display = 'block';
   _filterTab = 'all';
   document.querySelectorAll('.filter-tab').forEach(el => el.classList.toggle('active', el.dataset.tab === 'all'));
@@ -770,8 +962,18 @@ function selectPlayer(el, name, pos, pts, reb, ast, stl, blk) {
   el.classList.add('selected');
 
   let positions;
-  try { positions = JSON.parse(decodeURIComponent(el.dataset.positions)); } catch(e) { positions = getPositions(pos); }
+  try { 
+    const posData = el.dataset.positions;
+    if (posData) {
+      positions = JSON.parse(decodeURIComponent(posData));
+    }
+  } catch(e) { 
+    console.error('Failed to parse positions:', e);
+    positions = getPositions(pos); 
+  }
   if (!positions || positions.length === 0) positions = getPositions(pos);
+  // 确保 positions 是数组
+  if (!Array.isArray(positions)) positions = [positions].filter(Boolean);
 
   const emptyEligible = positions.filter(p => !game.slots[p]);
   if (emptyEligible.length === 0) {
@@ -786,6 +988,11 @@ function selectPlayer(el, name, pos, pts, reb, ast, stl, blk) {
 }
 
 function onEmptySlotClick(pos) {
+  // 确保 pos 有效
+  if (!pos || !POS_ORDER.includes(pos)) {
+    console.error('Invalid pos in onEmptySlotClick:', pos);
+    return;
+  }
   if (pendingPick && pendingPick.positions.includes(pos)) {
     confirmDraftWith({ ...pendingPick, assignedPos: pos });
   } else if (moveState && moveState.targetPositions.includes(pos)) {
@@ -825,6 +1032,12 @@ function confirmDraftWith(pick) {
   pendingPick = null; moveState = null;
   document.querySelectorAll('.player-card.selected').forEach(c => c.classList.remove('selected'));
 
+  // 确保 pick 和 game.slots 存在
+  if (!pick || !pick.assignedPos || !game || !game.slots) {
+    console.error('Invalid pick or game state in confirmDraftWith');
+    return;
+  }
+
   const playerPositions = pick.positions || getPositions(pick.pos);
   game.slots[pick.assignedPos] = {
     name: pick.name, pos: pick.pos, positions: playerPositions,
@@ -856,6 +1069,11 @@ function confirmDraftWith(pick) {
 
 // ==================== RATING CALCULATION ====================
 function playerRating(p) {
+  // 确保 p 是对象
+  if (!p || typeof p !== 'object') {
+    console.error('Invalid player in playerRating');
+    return 50;
+  }
   if (isNum(p.customRating)) {
     return Math.round(p.customRating * 10) / 10;
   }
@@ -912,6 +1130,12 @@ function calcRecord(slots) {
 
 function runSimulation() {
   showScreen('screen-result');
+
+  // 确保 game.slots 存在
+  if (!game.slots || !game.slots.PG) {
+    console.error('No game slots in runSimulation');
+    game.slots = generateRandomTeam();
+  }
 
   const result = calcRecord(game.slots);
   game.wins = result.wins;
@@ -972,8 +1196,13 @@ function runSimulation() {
 // ==================== HISTORY ====================
 function getHistory() {
   try {
-    return JSON.parse(localStorage.getItem('duel_history') || '[]');
-  } catch { return []; }
+    const data = localStorage.getItem('duel_history');
+    if (!data) return [];
+    return JSON.parse(data);
+  } catch (e) { 
+    console.error('Failed to parse history:', e);
+    return []; 
+  }
 }
 
 function saveToHistory() {
@@ -1020,9 +1249,11 @@ function saveToHistory() {
       ...game, slots: game.slots, ovr: result.ovr,
     }));
   } catch (e) {
-    console.warn('localStorage save failed:', e);
-    while (history.length > 10) history.pop();
+    console.error('localStorage save failed:', e);
+    // 尝试清理旧数据后再保存
     try {
+      localStorage.removeItem('duel_history');
+      while (history.length > 5) history.pop();
       localStorage.setItem('duel_history', JSON.stringify(history));
     } catch (e2) {
       console.error('Failed to save even trimmed history:', e2);
@@ -1055,6 +1286,10 @@ function openHistoryFromHome() {
 function renderHistoryList() {
   const history = getHistory();
   const list = document.getElementById('historyList');
+  if (!list) {
+    console.error('historyList not found');
+    return;
+  }
 
   if (history.length === 0) {
     list.innerHTML = '<div class="no-players"><div class="icon">📋</div><p>暂无历史战绩,先去组队吧!</p></div>';
@@ -1083,6 +1318,11 @@ function renderHistoryList() {
 }
 
 function challengeFromHistory(index) {
+  // 确保 index 有效
+  if (index === undefined || index === null || index < 0) {
+    console.error('Invalid index in challengeFromHistory:', index);
+    return;
+  }
   const history = getHistory();
   const target = history[index];
   if (!target || !target.slots) return;
@@ -1140,6 +1380,10 @@ async function shareResult() {
 
 function copyShareLink() {
   const url = document.getElementById('shareLinkUrl').textContent;
+  if (!url) {
+    console.error('No share URL to copy');
+    return;
+  }
   if (navigator.clipboard) {
     navigator.clipboard.writeText(url).then(() => alert('链接已复制!'));
   } else {
@@ -1155,21 +1399,88 @@ function challengeJinbaKing() {
   // 生成金霸王最强阵容
   const jinbaSlots = generateJinbaKingTeam();
   const jinbaResult = calcRecord(jinbaSlots);
+  
+  // 金霸王球队综合评分减30
+  jinbaResult.ovr = Math.max(0, jinbaResult.ovr - 30);
+  jinbaResult.wins = Math.max(0, jinbaResult.wins - 25);
+  jinbaResult.losses = 82 - jinbaResult.wins;
 
-  // 如果用户还没创建队伍，提示先创建
+  // 如果用户没有创建队伍，直接开始挑战（用随机队伍）
   if (!game.slots || !POS_ORDER.every(pos => game.slots[pos])) {
-    // 自动生成一个随机队伍作为玩家队伍
-    startGame();
-    // 等待游戏初始化完成后再挑战
-    setTimeout(() => {
-      const myResult = calcRecord(game.slots);
-      startChallengeDirect(game.slots, myResult, jinbaSlots, jinbaResult, '金霸王');
-    }, 100);
+    const randomSlots = generateRandomTeam();
+    game.slots = randomSlots;
+    game.roster = Object.values(randomSlots).filter(Boolean);
+    const myResult = calcRecord(game.slots);
+    startChallengeDirect(game.slots, myResult, jinbaSlots, jinbaResult, '金霸王');
     return;
   }
 
+  // 用户已有队伍，弹出选择：创建新队伍 vs 用当前队伍挑战
+  showJinbaTeamChoice(jinbaSlots, jinbaResult);
+}
+
+function showJinbaTeamChoice(jinbaSlots, jinbaResult) {
+  let overlay = document.getElementById('jinbaChoiceOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'jinbaChoiceOverlay';
+    overlay.className = 'poster-overlay';
+    document.body.appendChild(overlay);
+  }
+
+  overlay.innerHTML = `
+    <div class="poster-content" style="max-width:400px;text-align:center;">
+      <div class="poster-title" style="font-size:22px;">👑 挑战金霸王</div>
+      <div style="font-size:16px;color:var(--text-secondary);margin:16px 0;">
+        检测到您已有队伍<br>请选择挑战方式
+      </div>
+      <div style="display:flex;gap:12px;justify-content:center;margin:20px 0;">
+        <button class="btn-3d orange" onclick="startJinbaWithCurrentTeam()">🏀 用当前队伍挑战</button>
+        <button class="btn-3d dark" onclick="startJinbaWithNewTeam()">🔄 创建新队伍挑战</button>
+      </div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.4);">
+        当前队伍: ${POS_ORDER.map(pos => game.slots[pos]?.name?.split('-').pop() || '').filter(Boolean).join(' | ')}
+      </div>
+    </div>
+  `;
+  overlay.classList.add('show');
+  
+  // 保存到全局供回调使用
+  window._jinbaSlots = jinbaSlots;
+  window._jinbaResult = jinbaResult;
+}
+
+function startJinbaWithCurrentTeam() {
+  const overlay = document.getElementById('jinbaChoiceOverlay');
+  if (overlay) overlay.classList.remove('show');
+  
+  const jinbaSlots = window._jinbaSlots;
+  const jinbaResult = window._jinbaResult;
   const myResult = calcRecord(game.slots);
   startChallengeDirect(game.slots, myResult, jinbaSlots, jinbaResult, '金霸王');
+}
+
+function startJinbaWithNewTeam() {
+  const overlay = document.getElementById('jinbaChoiceOverlay');
+  if (overlay) overlay.classList.remove('show');
+  
+  const jinbaSlots = window._jinbaSlots;
+  const jinbaResult = window._jinbaResult;
+  
+  // 创建新队伍
+  startGame();
+  // 等待游戏初始化后自动挑战
+  window._pendingJinbaChallenge = { jinbaSlots, jinbaResult };
+}
+
+// 在 nextRound 结束后检查是否有待处理的金霸王挑战
+function checkPendingJinbaChallenge() {
+  if (window._pendingJinbaChallenge && game.round >= MAX_ROUNDS) {
+    const { jinbaSlots, jinbaResult } = window._pendingJinbaChallenge;
+    window._pendingJinbaChallenge = null;
+    const myResult = calcRecord(game.slots);
+    startChallengeDirect(game.slots, myResult, jinbaSlots, jinbaResult, '金霸王');
+  }
 }
 
 function generateJinbaKingTeam() {
@@ -1189,9 +1500,26 @@ function generateJinbaKingTeam() {
     }
   }
 
+  // 如果没有金霸王球员，使用默认阵容
+  if (jinbaPlayers.length === 0) {
+    console.error('No 金霸王 players found, using default team');
+    return generateRandomTeam();
+  }
+
+  // 去重：按球员名称去重，保留每个球员只出现一次
+  const uniquePlayers = [];
+  const seenNames = new Set();
+  for (const p of jinbaPlayers) {
+    const nameKey = p.name || p.enName;
+    if (!seenNames.has(nameKey)) {
+      seenNames.add(nameKey);
+      uniquePlayers.push(p);
+    }
+  }
+
   // 按评分排序，选每个位置最强的
   const posMap = { PG: [], SG: [], SF: [], PF: [], C: [] };
-  for (const p of jinbaPlayers) {
+  for (const p of uniquePlayers) {
     for (const pos of p.positions) {
       if (posMap[pos]) {
         posMap[pos].push(p);
@@ -1199,8 +1527,12 @@ function generateJinbaKingTeam() {
     }
   }
 
+  // 已选球员集合，防止跨位置重复
+  const selectedPlayers = new Set();
+
   for (const pos of POS_ORDER) {
-    const candidates = posMap[pos];
+    const candidates = posMap[pos].filter(p => !selectedPlayers.has(p.name || p.enName));
+    
     if (candidates && candidates.length > 0) {
       // 按综合评分排序（pts + reb + ast）
       candidates.sort((a, b) => {
@@ -1209,6 +1541,7 @@ function generateJinbaKingTeam() {
         return scoreB - scoreA;
       });
       const best = candidates[0];
+      selectedPlayers.add(best.name || best.enName);
       slots[pos] = {
         name: best.name,
         enName: best.enName || best.name,
@@ -1223,6 +1556,32 @@ function generateJinbaKingTeam() {
         blk: best.stats?.blk || 0,
         assignedPos: pos,
       };
+    } else {
+      // 如果该位置没有球员，从其他位置找最佳球员（未选过的）
+      const allCandidates = Object.values(posMap).flat().filter(p => !selectedPlayers.has(p.name || p.enName));
+      if (allCandidates.length > 0) {
+        allCandidates.sort((a, b) => {
+          const scoreA = (a.stats?.pts || 0) + (a.stats?.reb || 0) + (a.stats?.ast || 0);
+          const scoreB = (b.stats?.pts || 0) + (b.stats?.reb || 0) + (b.stats?.ast || 0);
+          return scoreB - scoreA;
+        });
+        const best = allCandidates[0];
+        selectedPlayers.add(best.name || best.enName);
+        slots[pos] = {
+          name: best.name,
+          enName: best.enName || best.name,
+          pos: best.pos,
+          positions: best.positions,
+          team: '金霸王',
+          decade: best.decade,
+          pts: best.stats?.pts || 0,
+          reb: best.stats?.reb || 0,
+          ast: best.stats?.ast || 0,
+          stl: best.stats?.stl || 0,
+          blk: best.stats?.blk || 0,
+          assignedPos: pos,
+        };
+      }
     }
   }
 
@@ -1230,6 +1589,12 @@ function generateJinbaKingTeam() {
 }
 
 function startChallengeDirect(mySlots, myResult, cpuSlots, cpuResult, cpuName) {
+  // 确保 slots 不为空
+  if (!mySlots || !cpuSlots) {
+    console.error('Empty slots in startChallengeDirect');
+    return;
+  }
+
   challengeState = {
     mySlots: { ...mySlots },
     myResult,
@@ -1257,6 +1622,10 @@ function openTeamSelect() {
 
 async function renderTeamSelect() {
   const list = document.getElementById('teamSelectList');
+  if (!list) {
+    console.error('teamSelectList not found');
+    return;
+  }
   list.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(255,255,255,0.4);">加载中...</div>';
 
   let allTeams = [];
@@ -1280,7 +1649,7 @@ async function renderTeamSelect() {
       const cloudIds = new Set(mapped.map(t => t.id));
       allTeams = allTeams.filter(t => !cloudIds.has(t.id)).concat(mapped);
     } catch (e) {
-      console.warn('Failed to load cloud teams:', e);
+      console.error('Failed to load cloud teams:', e);
     }
   }
 
@@ -1318,6 +1687,11 @@ async function renderTeamSelect() {
 let selectedChallengeTeam = null;
 
 function selectChallengeTeam(teamId) {
+  // 确保 teamId 有效
+  if (!teamId) {
+    console.error('Invalid teamId in selectChallengeTeam');
+    return;
+  }
   const history = getHistory();
   let teamSlots = null;
 
@@ -1341,6 +1715,11 @@ function selectChallengeTeam(teamId) {
 }
 
 function startChallengeWithTeam(cpuSlots) {
+  // 确保 cpuSlots 存在
+  if (!cpuSlots || typeof cpuSlots !== 'object') {
+    console.error('Invalid cpuSlots in startChallengeWithTeam');
+    return;
+  }
   showScreen('screen-challenge');
   const cpuResult = calcRecord(cpuSlots);
 
@@ -1367,7 +1746,13 @@ function handleShareLink() {
   const teamData = params.get('team');
   if (!teamData) return false;
 
-  const decoded = decodeTeamFromShare(teamData);
+  let decoded;
+  try {
+    decoded = decodeTeamFromShare(teamData);
+  } catch (e) {
+    console.error('Failed to decode share link:', e);
+    return false;
+  }
   if (decoded?.roster) {
     const slots = {};
     for (const pos of POS_ORDER) {
@@ -1394,6 +1779,11 @@ function handleShareLink() {
 }
 
 function saveSharedTeamToHistory(decoded, result, slots) {
+  // 确保 decoded 存在
+  if (!decoded || typeof decoded !== 'object') {
+    console.error('Invalid decoded data in saveSharedTeamToHistory');
+    return;
+  }
   const history = getHistory();
   const exists = history.some(h => h.record === decoded.record && h.grade === decoded.grade && h.shared);
   if (exists) return;
@@ -1452,6 +1842,11 @@ function showShareChallengeModal(decoded, result) {
 
 function acceptChallenge() {
   closeShareModal();
+  // 确保 window._sharedChallengeInfo 存在
+  if (!window._sharedChallengeInfo) {
+    console.error('No shared challenge info in acceptChallenge');
+    return;
+  }
   window._pendingChallengeOpponent = {
     slots: window._sharedChallengeInfo?.slots || {},
     result: window._sharedChallengeInfo || {},
@@ -1465,14 +1860,27 @@ function acceptChallenge() {
 
 function closeShareModal() {
   const overlay = document.getElementById('shareLinkOverlay');
-  if (overlay) overlay.classList.remove('show');
+  if (overlay) {
+    overlay.classList.remove('show');
+  } else {
+    console.error('shareLinkOverlay not found');
+  }
 }
 
 function saveAndCloseShare() {
-  closeShareModal();
+  try {
+    closeShareModal();
+  } catch (e) {
+    console.error('Error in saveAndCloseShare:', e);
+  }
 }
 
 function startChallengeAgainst(opponent) {
+  // 确保 opponent 存在
+  if (!opponent || typeof opponent !== 'object') {
+    console.error('Invalid opponent in startChallengeAgainst');
+    return;
+  }
   const myResult = calcRecord(game.slots);
   const oppSlots = opponent.slots;
   const oppResult = opponent.result;
@@ -1508,10 +1916,34 @@ function generateRandomTeam() {
     do {
       const decade = allDecades[Math.floor(Math.random() * allDecades.length)];
       const teams = Object.keys((NBA_DATA || {})[decade] || {});
-      const team = teams[Math.floor(Math.random() * teams.length)];
+      // 过滤掉没有该位置球员的球队
+      const validTeams = teams.filter(t => {
+        const players = (NBA_DATA || {})[decade]?.[t] || [];
+        return players.some(p => {
+          const posList = p.positions?.length ? p.positions : [p.pos];
+          return posList.includes(pos);
+        });
+      });
+      
+      if (validTeams.length === 0) {
+        attempts++;
+        continue;
+      }
+      
+      // 2010s/2020s 金霸王概率 10%
+      const isBoostEra = decade === '2010s' || decade === '2020s';
+      const team = isBoostEra && validTeams.includes('金霸王') && Math.random() < 0.1
+        ? '金霸王'
+        : validTeams[Math.floor(Math.random() * validTeams.length)];
       combo = decade + '|' + team;
       attempts++;
     } while (usedCombos.has(combo) && attempts < 20);
+    
+    if (attempts >= 20 || !combo) {
+      console.error('Failed to find valid combo for position:', pos);
+      continue;
+    }
+    
     usedCombos.add(combo);
 
     const [decade, team] = combo.split('|');
@@ -1558,6 +1990,17 @@ function renderChallengeVS(cpuResult, cpuName) {
   const myDiv = document.getElementById('challengeMyTeam');
   const cpuDiv = document.getElementById('challengeCpuTeam');
 
+  // 确保 challengeState 存在
+  if (!challengeState) {
+    console.error('No challengeState in renderChallengeVS');
+    return;
+  }
+  // 确保 DOM 元素存在
+  if (!myDiv || !cpuDiv) {
+    console.error('Challenge DOM elements not found');
+    return;
+  }
+
   function renderMiniTeam(slots, result, isCpu) {
     const playersHtml = POS_ORDER.map(pos => {
       const p = slots[pos];
@@ -1576,7 +2019,20 @@ function renderChallengeVS(cpuResult, cpuName) {
 }
 
 function simulateNextGame() {
-  if (!challengeState) return;
+  if (!challengeState) {
+    console.error('No challengeState in simulateNextGame');
+    return;
+  }
+  // 确保 challengeState 有必要的属性
+  if (!challengeState.games || !challengeState.mySlots || !challengeState.cpuSlots) {
+    console.error('Incomplete challengeState in simulateNextGame');
+    return;
+  }
+  if (typeof challengeState.myWins !== 'number' || typeof challengeState.cpuWins !== 'number') {
+    console.error('Invalid challengeState wins in simulateNextGame');
+    challengeState.myWins = challengeState.myWins || 0;
+    challengeState.cpuWins = challengeState.cpuWins || 0;
+  }
   if (challengeState.myWins >= 4 || challengeState.cpuWins >= 4) {
     renderChallengeFinal();
     return;
@@ -1587,8 +2043,11 @@ function simulateNextGame() {
   const cpuMomentum = challengeState.cpuWins - challengeState.myWins;
   const isMyHome = gameNum % 2 === 1;
 
-  const myPts = simulateGameScore(challengeState.mySlots, isMyHome, myMomentum);
-  const cpuPts = simulateGameScore(challengeState.cpuSlots, !isMyHome, cpuMomentum);
+  // 判断是否是金霸王防守方（挑战金霸王时，挑战方胜率降低）
+  const isJinbaDefender = challengeState.cpuName === '金霸王';
+
+  const myPts = simulateGameScore(challengeState.mySlots, isMyHome, myMomentum, isJinbaDefender);
+  const cpuPts = simulateGameScore(challengeState.cpuSlots, !isMyHome, cpuMomentum, false);
   const myWin = myPts > cpuPts;
 
   if (myWin) challengeState.myWins++;
@@ -1617,11 +2076,17 @@ function simulateNextGame() {
   }
 }
 
-function simulateGameScore(slots, isHome = false, momentum = 0) {
+function simulateGameScore(slots, isHome = false, momentum = 0, isJinbaDefender = false) {
   let totalOvr = 0;
   let count = 0;
   const ratings = [];
   const posRatings = {};
+
+  // 确保 slots 是对象
+  if (!slots || typeof slots !== 'object') {
+    console.error('Invalid slots in simulateGameScore');
+    return 70 + Math.floor(Math.random() * 40);
+  }
 
   for (const pos of POS_ORDER) {
     const p = slots[pos];
@@ -1636,7 +2101,15 @@ function simulateGameScore(slots, isHome = false, momentum = 0) {
   if (count === 0) return 70 + Math.floor(Math.random() * 40);
 
   const avgOvr = totalOvr / count;
-  const baseScore = 90 + (avgOvr - 70) * 0.6;
+  
+  // 金霸王被挑战时，挑战方（myTeam）胜率降低到10%
+  // 通过大幅降低挑战方得分来实现
+  let baseScore = 90 + (avgOvr - 70) * 0.6;
+  if (isJinbaDefender && !isHome) {
+    // 挑战方得分大幅降低（胜率约10%）
+    baseScore = baseScore * 0.75; // 降低25%得分
+  }
+  
   const variation = (Math.random() - 0.5) * 16;
   const maxRating = Math.max(...ratings);
   const starBoost = (maxRating - avgOvr) * 0.3;
@@ -1665,6 +2138,11 @@ function simulateGameScore(slots, isHome = false, momentum = 0) {
 }
 
 function renderChallengeGames() {
+  // 确保 challengeState 和 games 存在
+  if (!challengeState || !challengeState.games) {
+    console.error('No challengeState or games in renderChallengeGames');
+    return;
+  }
   const container = document.getElementById('challengeGames');
   const scoreDiv = document.getElementById('challengeResult');
 
@@ -1702,6 +2180,12 @@ function renderChallengeFinal() {
   const mvp = selectMVP(winningSlots);
   const mvpHighlight = generateMVPHighlight(mvp, challengeState.games);
 
+  // 先保存MVP数据，再生成HTML（避免onclick引用时还未赋值）
+  if (mvp) {
+    window._lastMVP = mvp;
+    window._lastMVPHighlight = mvpHighlight;
+  }
+
   resultDiv.innerHTML = `
     <div style="font-size:36px;font-weight:900;margin:16px 0;color:${myWin ? 'var(--green-3d)' : 'var(--red-3d)'}">
       ${myWin ? '🏆 挑战成功!' : '💔 挑战失败'}
@@ -1733,6 +2217,10 @@ function renderChallengeFinal() {
 function launchConfetti() {
   const container = document.createElement('div');
   container.className = 'confetti-container';
+  if (!document.body) {
+    console.error('No document.body in launchConfetti');
+    return;
+  }
   document.body.appendChild(container);
 
   const colors = ['#f39c12','#e74c3c','#27ae60','#3498db','#9b59b6','#f1c40f','#e67e22','#1abc9c'];
@@ -1757,6 +2245,12 @@ function launchConfetti() {
 function showPoster() {
   const overlay = document.getElementById('posterOverlay');
   const content = document.getElementById('posterContent');
+
+  // 确保游戏数据存在
+  if (!game.slots || !game.wins) {
+    console.error('No game data for poster');
+    return;
+  }
 
   const topRow = ['PG', 'SG'];
   const bottomRow = ['SF', 'C', 'PF'];
@@ -1793,7 +2287,15 @@ function closePoster() {
 
 function downloadPoster() {
   const canvas = document.getElementById('posterCanvas');
+  if (!canvas) {
+    console.error('Canvas not found');
+    return;
+  }
   const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    console.error('Canvas context not available');
+    return;
+  }
   const W = 600, H = 900;
   canvas.width = W * 2;
   canvas.height = H * 2;
