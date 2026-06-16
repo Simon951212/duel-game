@@ -13,6 +13,12 @@
   --green-3d: #44cc66;
   --red-3d: #ff4466;
   --btn-orange: #ff9900;
+  --btn-red: #ff4466;
+  --red-light: #ff6688;
+  --green: #44cc66;
+  --gold: #f39c12;
+  --blue: #4488ff;
+  --pink: #ff6b9d;
   --text-secondary: rgba(255,255,255,0.5);
   --btn-dark: #2a2040;
   --floor-color: #6b3a1f;
@@ -874,4 +880,26 @@ body {
 /* background-clip:text 的降级保护，防止老旧浏览器文字消失 */
 .result-record {
   color: var(--orange-light);
+}
+/* ========== MVP 弹窗样式 ========== */
+#mvpOverlay .poster {
+  max-width: 400px;
+  border: 2px solid var(--gold);
+  box-shadow: 0 0 40px rgba(243,156,18,0.3);
+}
+
+#mvpPlayerName {
+  text-shadow: 0 0 20px rgba(243,156,18,0.5);
+}
+
+#mvpHighlight {
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 12px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 8px;
+}
+
+#mvpCloseBtn {
+  min-width: 120px;
 }

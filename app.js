@@ -1,31 +1,33 @@
-// 是男人就来单挑 - Game Logic (v3)
+/* ============================================
+   是男人就来单挑 - Game Logic (v4 - Bug Fixed & Optimized)
+   ============================================ */
 
-const API_BASE = ''; // Cloudflare 国内不可用，改用 URL 分享
+// ==================== CLOUD API ====================
+const API_BASE = ''; // Cloudflare 国内不可用,改用 URL 分享
 
+// ==================== URL 分享功能 ====================
 function encodeTeamForShare(teamData) {
   const json = JSON.stringify({
     ovr: teamData.ovr,
     grade: teamData.grade,
     tier: teamData.tier,
     record: teamData.record,
-    roster: teamData.roster.filter(Boolean).map(p => ({
-      name: p.name,
-      rating: p.rating,
-      pos: p.pos,
-      positions: p.positions,
-      assignedPos: p.assignedPos,
-      era: p.era,
-      team: p.team,
-      pts: p.pts, reb: p.reb, ast: p.ast,
-      stl: p.stl, blk: p.blk
-    }))
+    roster: teamData.roster.map(p => ({ name: p.name, rating: p.rating, position: p.position, era: p.era, team: p.team }))
   });
-  return btoa(unescape(encodeURIComponent(json)));
+  // 使用现代 Base64 编码替代废弃的 escape()
+  const bytes = new TextEncoder().encode(json);
+  const base64 = btoa(String.fromCharCode(...bytes));
+  return base64;
 }
 
 function decodeTeamFromShare(encoded) {
   try {
-    const json = decodeURIComponent(escape(atob(encoded)));
+    const binary = atob(encoded);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const json = new TextDecoder().decode(bytes);
     return JSON.parse(json);
   } catch (e) {
     console.error('Failed to decode team:', e);
@@ -85,26 +87,123 @@ async function generateReports(challengeData) {
   return data?.reports || [];
 }
 
-const REPORT_TEMPLATES = {
+// ==================== MVP HIGHLIGHT ====================
+const MVP_HIGHLIGHTS = {
   blowout: [
-    '第{gameNum}节，{winner}的{star}统治全场，拿下{pts}分{reb}篮板{ast}助攻。{loser}毫无还手之力，{score}轻松拿下。',
-    '{winner}从开场就压制{loser}，{star}里突外投不可阻挡。{score}，一场毫无悬念的胜利。',
-    '{star}狂砍{pts}分{reb}篮板，{winner}把{loser}打花了！{score}，碾压局。',
+    '{player}全场狂砍{pts}分{reb}篮板{ast}助攻,统治攻防两端!他的突破如入无人之境,对手只能望球兴叹。关键时刻更是连得{clutch}分彻底杀死比赛,毫无争议的系列赛MVP!',
+    '{player}打出了统治级表现,场均{pts}分{reb}篮板{ast}助攻的全面数据让对手无从招架。无论是内线强攻还是外线投射,他都展现出一代巨星的风采,带领球队轻松取胜!',
+    '这场系列赛完全属于{player}!他以场均{pts}分的火力输出打爆了对位防守,{reb}个篮板更是筑起了坚不可摧的屏障。队友们都说:把球给他就行了!',
   ],
   medium: [
-    '第{gameNum}节，{winner}的{star}发挥出色，贡献{pts}分{reb}篮板{ast}助攻。{loser}努力追赶但差距渐大，{score}落败。',
-    '{winner}在{star}带领下稳扎稳打，第三节拉开比分。{score}，{loser}追分未果。',
-    '{star}手感火热，连中三记三分。{winner}建立两位数优势，{score}收下比赛。',
+    '{player}在本系列赛中表现抢眼,场均贡献{pts}分{reb}篮板{ast}助攻。他在关键第{keyGame}节的出色发挥成为比赛转折点,那波{streak}分的连续得分直接改变了比赛走向,堪称系列赛最大功臣!',
+    '系列赛中场均{pts}分{reb}篮板{ast}助攻,{player}用稳定的表现帮助球队锁定胜局。尤其是最后一节的冷静发挥,连续命中关键投篮,展现了一颗大心脏!',
+    '{player}在攻防两端都有上佳表现,场均{pts}分{reb}篮板的数据虽不炸裂但足够稳定。更重要的是他在关键时刻的冷静处理,几次精妙的助攻直接帮助球队拿下比赛!',
   ],
   close: [
-    '关键时刻{star}命中准绝杀！{winner}以{score}险胜{loser}，太刺激了！',
-    '最后十秒{star}突破上篮命中反超！{winner}{score}惊险拿下第{gameNum}节。',
-    '比分胶着到最后，{star}一记干拔三分锁定胜局！{score}，{winner}拿下关键一役。',
-    '{loser}一度领先5分，但{star}末节独得{endPts}分完成逆转！{score}，大逆转！',
+    '🔥决胜时刻!{player}在最后关头挺身而出,全场砍下{pts}分{reb}篮板{ast}助攻。第{keyGame}节那记关键{clutchPlay}至今让人热血沸腾,他就是为关键球而生的球员!MVP实至名归!',
+    '系列赛战至最后一刻,{player}用场均{pts}分{reb}篮板{ast}助攻的表现证明了谁才是场上领袖。最让人难忘的是他在最后关头的冷静,那球处理堪称教科书级别!',
+    '在如此焦灼的系列赛中,{player}扛起了整支球队!场均{pts}分的输出加上关键时刻的{clutch}分连续得分,他用行动诠释了什么叫"关键先生"!',
   ],
   buzzer: [
-    '🔥绝杀！最后0.8秒{star}接球就投，三分命中！{winner}{score}绝杀{loser}！全场沸腾！',
-    '🔥压哨绝杀！{star}后撤步三分出手——进了！{winner}{score}绝杀！太疯狂了！',
+    '🔥绝杀英雄!最后0.8秒{player}接球就投,三分命中!全场{pts}分{reb}篮板{ast}助攻的数据配上这记绝杀,他就是今晚唯一的MVP!整个球馆都为他沸腾了!',
+    '压哨绝杀!{player}后撤步三分出手--球进了!全场{pts}分的他完成了最伟大的表演!从开场到终场,他一直在用实力告诉所有人:这就是我的舞台!MVP!',
+  ],
+};
+
+function selectMVP(winningSlots) {
+  const players = Object.values(winningSlots).filter(Boolean);
+  if (players.length === 0) return null;
+  const sorted = [...players].sort((a, b) => {
+    const scoreA = (a.pts||0) + (a.reb||0)*0.8 + (a.ast||0)*0.6 + (a.stl||0)*0.5 + (a.blk||0)*0.5;
+    const scoreB = (b.pts||0) + (b.reb||0)*0.8 + (b.ast||0)*0.6 + (b.stl||0)*0.5 + (b.blk||0)*0.5;
+    return scoreB - scoreA;
+  });
+  return sorted[0];
+}
+
+function generateMVPHighlight(mvp, games) {
+  if (!mvp) return '本场比赛表现出色的球员获得了MVP称号!';
+  const diff = Math.abs(games[games.length-1].myPts - games[games.length-1].cpuPts);
+  const myWin = challengeState.myWins >= 4;
+  const winnerGames = games.filter(g => myWin ? g.myWin : !g.myWin);
+
+  const avgPts = Math.round(games.reduce((sum, g) => sum + (Math.random()*5 + mvp.pts*0.8), 0) / games.length);
+  const avgReb = Math.round((mvp.reb||8) + (Math.random()-0.5)*3);
+  const avgAst = Math.round((mvp.ast||6) + (Math.random()-0.5)*3);
+  const clutchPts = Math.max(Math.round(avgPts * 0.35), 6);
+  const keyGame = Math.min(winnerGames.length, games.length);
+
+  let template;
+  const lastGame = games[games.length - 1];
+  const lastDiff = Math.abs(lastGame.myPts - lastGame.cpuPts);
+  if (lastDiff <= 3 && Math.random() < 0.3) {
+    template = MVP_HIGHLIGHTS.buzzer[Math.floor(Math.random() * MVP_HIGHLIGHTS.buzzer.length)];
+  } else if (lastDiff < 10) {
+    template = MVP_HIGHLIGHTS.close[Math.floor(Math.random() * MVP_HIGHLIGHTS.close.length)];
+  } else if (lastDiff < 25) {
+    template = MVP_HIGHLIGHTS.medium[Math.floor(Math.random() * MVP_HIGHLIGHTS.medium.length)];
+  } else {
+    template = MVP_HIGHLIGHTS.blowout[Math.floor(Math.random() * MVP_HIGHLIGHTS.blowout.length)];
+  }
+
+  const clutchPlays = ['中投命中', '三分远投', '突破上篮', '暴扣得分', '后仰跳投', '罚球线跳投'];
+
+  return template
+    .replaceAll('{player}', mvp.name)
+    .replaceAll('{pts}', avgPts)
+    .replaceAll('{reb}', avgReb)
+    .replaceAll('{ast}', avgAst)
+    .replaceAll('{clutch}', clutchPts)
+    .replaceAll('{keyGame}', keyGame)
+    .replaceAll('{streak}', Math.max(Math.round(avgPts * 0.4), 5))
+    .replaceAll('{clutchPlay}', clutchPlays[Math.floor(Math.random() * clutchPlays.length)]);
+}
+
+function showMVPModal(mvp, highlight) {
+  if (!mvp) return;
+  const overlay = document.getElementById('mvpOverlay');
+  const mvpName = document.getElementById('mvpPlayerName');
+  const mvpTeam = document.getElementById('mvpPlayerTeam');
+  const mvpText = document.getElementById('mvpHighlight');
+  const mvpClose = document.getElementById('mvpCloseBtn');
+
+  const playerName = mvp.name.split('-').pop();
+  const colors = TEAM_COLORS[mvp.team] || ['#333', '#555'];
+
+  mvpName.textContent = playerName;
+  mvpTeam.textContent = `${teamCN(mvp.team)} · ${mvp.decade}`;
+  mvpText.textContent = highlight;
+
+  // Set background gradient
+  const bgGrad = `linear-gradient(135deg, ${colors[0]}, ${colors[1]})`;
+  mvpName.parentElement.style.background = bgGrad;
+
+  overlay.classList.add('show');
+
+  mvpClose.onclick = () => overlay.classList.remove('show');
+}
+
+// ==================== GAME REPORTS ====================
+const REPORT_TEMPLATES = {
+  blowout: [
+    '第{gameNum}节,{winner}的{star}统治全场,拿下{pts}分{reb}篮板{ast}助攻。{loser}毫无还手之力,{score}轻松拿下!',
+    '{winner}从开场就压制{loser},{star}里突外投不可阻挡。{score},一场毫无悬念的胜利!',
+    '{star}狂砍{pts}分{reb}篮板,{winner}把{loser}打花了!{score},碾压局!',
+  ],
+  medium: [
+    '第{gameNum}节,{winner}的{star}发挥出色,贡献{pts}分{reb}篮板{ast}助攻。{loser}努力追赶但差距渐大,{score}落败!',
+    '{winner}在{star}带领下稳扎稳打,第三节拉开比分。{score},{loser}追分未果!',
+    '{star}手感火热,连中三记三分。{winner}建立两位数优势,{score}收下比赛!',
+  ],
+  close: [
+    '关键时刻{star}命中准绝杀!{winner}以{score}险胜{loser},太刺激了!',
+    '最后十秒{star}突破上篮命中反超!{winner}{score}惊险拿下第{gameNum}节!',
+    '比分胶着到最后,{star}一记干拔三分锁定胜局!{score},{winner}拿下关键一役!',
+    '{loser}一度领先分,但{star}末节独得{endPts}分完成逆转!{score},大逆转!',
+  ],
+  buzzer: [
+    '🔥绝杀!最后0.8秒{star}接球就投,三分命中!{winner}{score}绝杀{loser}!全场沸腾!',
+    '🔥压哨绝杀!{star}后撤步三分出手--进了!{winner}{score}绝杀!太疯狂了!',
   ],
 };
 
@@ -128,15 +227,15 @@ function generateGameReport(g) {
   }
 
   let report = template
-    .replace('{gameNum}', g.num)
-    .replace('{winner}', winner)
-    .replace('{loser}', loser)
-    .replace('{star}', star.name)
-    .replace('{score}', score)
-    .replace('{pts}', star.pts)
-    .replace('{reb}', star.reb)
-    .replace('{ast}', star.ast)
-    .replace('{endPts}', Math.max(Math.round(star.pts * 0.4), 8));
+    .replaceAll('{gameNum}', g.num)
+    .replaceAll('{winner}', winner)
+    .replaceAll('{loser}', loser)
+    .replaceAll('{star}', star.name)
+    .replaceAll('{score}', score)
+    .replaceAll('{pts}', star.pts)
+    .replaceAll('{reb}', star.reb)
+    .replaceAll('{ast}', star.ast)
+    .replaceAll('{endPts}', Math.max(Math.round(star.pts * 0.4), 8));
 
   if (g.isClincher) {
     const sWins = g.myWins, cWins = g.cpuWins;
@@ -163,39 +262,75 @@ function getStarPlayer(team) {
   };
 }
 
+// ==================== NBA DATA ====================
 let NBA_DATA = null;
 
 (function loadData() {
   if (typeof NBA_DATA_RAW === 'undefined') {
     console.error('NBA_DATA_RAW not loaded');
+    document.addEventListener('DOMContentLoaded', () => {
+      const app = document.querySelector('.app-container');
+      if (app) {
+        app.innerHTML = `
+          <div style="text-align:center;padding:40px;color:#fff;">
+            <div style="font-size:48px;margin-bottom:20px;">😅</div>
+            <div style="font-size:18px;margin-bottom:12px;">数据加载失败</div>
+            <div style="font-size:14px;color:rgba(255,255,255,0.5);margin-bottom:24px;">
+              球员数据未能正确加载,请刷新页面重试
+            </div>
+            <button class="btn-3d orange" onclick="location.reload()">🔄 刷新页面</button>
+          </div>
+        `;
+      }
+    });
     return;
   }
-  const result = {};
-  NBA_DATA_RAW.forEach(p => {
-    const era = p.era;
-    const team = p.team;
-    if (!result[era]) result[era] = {};
-    if (!result[era][team]) result[era][team] = [];
-    result[era][team].push({
-      name: p.cname || p.player,
-      enName: p.player,
-      pos: p.pos,
-      positions: p.positions || [],
-      stats: { pts: p.ppg, reb: p.rpg, ast: p.apg, stl: p.spg, blk: p.bpg }
+
+  try {
+    const result = {};
+    NBA_DATA_RAW.forEach(p => {
+      const era = p.era;
+      const team = p.team;
+      if (!result[era]) result[era] = {};
+      if (!result[era][team]) result[era][team] = [];
+      result[era][team].push({
+        name: p.cname || p.player,
+        enName: p.player,
+        pos: p.pos,
+        positions: p.positions || [],
+        stats: { pts: p.ppg, reb: p.rpg, ast: p.apg, stl: p.spg, blk: p.bpg }
+      });
     });
-  });
-  NBA_DATA = result;
-  console.log('NBA_DATA loaded:', Object.keys(NBA_DATA).length, 'eras,',
-    Object.values(NBA_DATA).reduce((sum, d) => sum + Object.keys(d).length, 0), 'teams');
+    NBA_DATA = result;
+    console.log('NBA_DATA loaded:', Object.keys(NBA_DATA).length, 'eras,',
+      Object.values(NBA_DATA).reduce((sum, d) => sum + Object.keys(d).length, 0), 'teams');
+  } catch (e) {
+    console.error('Failed to parse NBA_DATA_RAW:', e);
+    document.addEventListener('DOMContentLoaded', () => {
+      const app = document.querySelector('.app-container');
+      if (app) {
+        app.innerHTML = `
+          <div style="text-align:center;padding:40px;color:#fff;">
+            <div style="font-size:48px;margin-bottom:20px;">😅</div>
+            <div style="font-size:18px;margin-bottom:12px;">数据解析失败</div>
+            <div style="font-size:14px;color:rgba(255,255,255,0.5);">
+              球员数据格式错误,请检查数据文件
+            </div>
+          </div>
+        `;
+      }
+    });
+  }
 })();
 
+// ==================== CONSTANTS ====================
 const POS_ORDER = ['PG', 'SG', 'SF', 'PF', 'C'];
 const MAX_ROUNDS = 5;
 const STAT_KEYS = ['pts', 'reb', 'ast', 'stl', 'blk'];
 
+const ALLOWED_ERAS = ['1980s', '1990s', '2000s', '2010s', '2020s'];
+
 const ERA_BENCHMARKS = {
-  "1960s": { pts: 30, reb: 18, ast: 8, stl: 1.8, blk: 1.8 },
-  "1970s": { pts: 28, reb: 13, ast: 9, stl: 2, blk: 2 },
   "1980s": { pts: 28, reb: 11, ast: 11, stl: 2.2, blk: 2 },
   "1990s": { pts: 27, reb: 11, ast: 9, stl: 2, blk: 2 },
   "2000s": { pts: 27, reb: 11, ast: 9, stl: 2, blk: 2 },
@@ -218,7 +353,7 @@ const TEAM_CN = {
   MIA: "热火", MIL: "雄鹿", MIN: "森林狼", NOP: "鹈鹕", NYK: "尼克斯",
   OKC: "雷霆", ORL: "魔术", PHI: "76人", PHX: "太阳", POR: "开拓者",
   SAC: "国王", SAS: "马刺", TOR: "猛龙", UTA: "爵士", WAS: "奇才",
-  "金霸王": "金霸王"
+  "金霸虎": "金霸虎"
 };
 
 const TEAM_COLORS = {
@@ -232,7 +367,7 @@ const TEAM_COLORS = {
   "ORL": ["#3053ad","#3053ae"],"PHI": ["#3063b0","#2f61af"],"PHX": ["#f6ca57","#c86d36"],
   "POR": ["#ab2f32","#6a1d1f"],"SAC": ["#55277f","#3a0e63"],"SAS": ["#c7cdd4","#34393d"],
   "TOR": ["#a2a2a4","#b12a32"],"UTA": ["#15203e","#14223e"],"WAS": ["#16213d","#bd2a33"],
-  "金霸王": ["#d4a017","#1a1a2e"]
+  "金霸虎": ["#d4a017","#1a1a2e"]
 };
 
 const TEAM_GRADE_BANDS = [
@@ -253,6 +388,7 @@ const INTANGIBLES = new Set([
   "dennis rodman","stephen curry","nikola jokic","dirk nowitzki",
 ]);
 
+// ==================== GAME STATE ====================
 let game = {
   round: 0,
   roster: [],
@@ -274,7 +410,9 @@ let _filterTab = 'all';
 let _topPool = [];
 let pendingPick = null;
 let moveState = null;
+let challengeState = null;
 
+// ==================== HELPERS ====================
 function teamCN(abbr) { return TEAM_CN[abbr] || abbr; }
 function isNum(v) { return typeof v === 'number' && !Number.isNaN(v); }
 function getPositions(posStr) {
@@ -282,11 +420,21 @@ function getPositions(posStr) {
   return posStr.split('/').map(p => p.trim()).filter(p => POS_ORDER.includes(p));
 }
 
+// ==================== PARTICLES ====================
 function initParticles() {
   const canvas = document.getElementById('particles-canvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   let w, h, particles = [];
+  let animationId = null;
+  let isVisible = true;
+
+  document.addEventListener('visibilitychange', () => {
+    isVisible = document.visibilityState === 'visible';
+    if (isVisible && !animationId) {
+      draw();
+    }
+  });
 
   function resize() {
     w = canvas.width = window.innerWidth;
@@ -306,6 +454,10 @@ function initParticles() {
   }
 
   function draw() {
+    if (!isVisible) {
+      animationId = null;
+      return;
+    }
     ctx.clearRect(0, 0, w, h);
     particles.forEach(p => {
       p.x += p.dx; p.y += p.dy;
@@ -316,16 +468,18 @@ function initParticles() {
       ctx.fillStyle = `rgba(243,156,18,${p.o})`;
       ctx.fill();
     });
-    requestAnimationFrame(draw);
+    animationId = requestAnimationFrame(draw);
   }
   draw();
 }
 
+// ==================== SCREEN MANAGEMENT ====================
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
 }
 
+// ==================== GAME INIT ====================
 function startGame() {
   closePoster();
   game = {
@@ -342,6 +496,7 @@ function startGame() {
   nextRound();
 }
 
+// ==================== ROSTER BAR ====================
 function renderRosterBar() {
   const bar = document.getElementById('rosterBar');
   const topRow = ['PG', 'SG'];
@@ -379,13 +534,14 @@ function renderRosterBar() {
   document.getElementById('skipDecadeCount').textContent = game.skipDecade + '次';
 }
 
+// ==================== ROUND PROGRESSION ====================
 function nextRound() {
   if (game.round >= MAX_ROUNDS) { runSimulation(); return; }
   game.spun = false;
   game.currentTeam = null;
   game.currentDecade = null;
 
-  document.getElementById('roundLabel').textContent = `第 ${game.round + 1} / ${MAX_ROUNDS} 轮`;
+  document.getElementById('roundLabel').textContent = `第${game.round + 1} / ${MAX_ROUNDS} 轮`;
   document.getElementById('spinBtn').disabled = false;
   document.getElementById('spinBtn').textContent = '🎰 随机';
   document.getElementById('skipTeamBtn').disabled = true;
@@ -400,6 +556,7 @@ function nextRound() {
   renderRosterBar();
 }
 
+// ==================== SLOT MACHINE ====================
 function spinSlot() {
   if (game.spun) return;
   const spinBtn = document.getElementById('spinBtn');
@@ -414,12 +571,12 @@ function spinSlot() {
   teamReel.classList.add('spinning');
   decadeReel.classList.add('spinning');
 
-  const allDecades = Object.keys(NBA_DATA).filter(d => d !== '1950s');
+  const allDecades = Object.keys(NBA_DATA || {}).filter(d => ALLOWED_ERAS.includes(d));
   let spinCount = 0;
 
   const spinInterval = setInterval(() => {
     const randDecade = allDecades[Math.floor(Math.random() * allDecades.length)];
-    const decadeTeams = Object.keys(NBA_DATA[randDecade] || {});
+    const decadeTeams = Object.keys((NBA_DATA || {})[randDecade] || {});
     const randTeam = decadeTeams[Math.floor(Math.random() * decadeTeams.length)];
     teamText.textContent = teamCN(randTeam);
     decadeText.textContent = randDecade;
@@ -440,7 +597,7 @@ function spinSlot() {
       decadeReel.style.borderColor = 'var(--green)';
 
       game.spun = true;
-      spinBtn.textContent = '✓ 锁定';
+      spinBtn.textContent = '✅锁定';
 
       document.getElementById('skipTeamBtn').disabled = game.skipTeam <= 0;
       document.getElementById('skipDecadeBtn').disabled = game.skipDecade <= 0;
@@ -451,24 +608,30 @@ function spinSlot() {
 }
 
 function getSlotResult() {
-  const usedSet = new Set(game.usedCombos || []);
+  const usedSet = new Set(game.usedCombos);
   const allCombos = [];
-  for (const decade of Object.keys(NBA_DATA).filter(d => d !== '1950s')) {
-    for (const team of Object.keys(NBA_DATA[decade])) {
-      if (!usedSet.has(decade + '|' + team)) {
+  for (const decade of Object.keys(NBA_DATA || {}).filter(d => ALLOWED_ERAS.includes(d))) {
+    for (const team of Object.keys((NBA_DATA || {})[decade] || {})) {
+      const combo = decade + '|' + team;
+      if (!usedSet.has(combo)) {
         allCombos.push({ team, decade });
       }
     }
   }
+
   if (allCombos.length === 0) {
-    const decades = Object.keys(NBA_DATA).filter(d => d !== '1950s');
-    const d = decades[0];
-    const t = Object.keys(NBA_DATA[d])[0];
-    return { team: t, decade: d };
+    game.usedCombos = [];
+    for (const decade of Object.keys(NBA_DATA || {}).filter(d => ALLOWED_ERAS.includes(d))) {
+      for (const team of Object.keys((NBA_DATA || {})[decade] || {})) {
+        allCombos.push({ team, decade });
+      }
+    }
   }
+
   return allCombos[Math.floor(Math.random() * allCombos.length)];
 }
 
+// ==================== SKIP ====================
 function directSkip(type) {
   if (pendingPick) { pendingPick = null; renderRosterBar(); }
   document.getElementById('spinBtn').disabled = true;
@@ -476,11 +639,16 @@ function directSkip(type) {
   if (type === 'team' && game.skipTeam > 0) {
     game.skipTeam--;
     const decadeTeams = Object.keys(NBA_DATA[game.currentDecade] || {});
-    const usedSet = new Set(game.usedCombos);
-    const otherTeams = decadeTeams.filter(t => !usedSet.has(game.currentDecade + '|' + t));
-    const finalTeam = otherTeams.length > 0
-      ? otherTeams[Math.floor(Math.random() * otherTeams.length)]
-      : decadeTeams.find(t => t !== game.currentTeam) || decadeTeams[0];
+    const otherTeams = decadeTeams.filter(t => t !== game.currentTeam);
+
+    if (otherTeams.length === 0) {
+      document.getElementById('playerHint').textContent = '该年代只有一支球队,无法跳过';
+      game.skipTeam++;
+      document.getElementById('skipTeamBtn').disabled = game.skipTeam <= 0;
+      return;
+    }
+
+    const finalTeam = otherTeams[Math.floor(Math.random() * otherTeams.length)];
 
     animateReel('teamReelText', decadeTeams, teamCN, () => {
       game.currentTeam = finalTeam;
@@ -491,11 +659,19 @@ function directSkip(type) {
   } else if (type === 'decade' && game.skipDecade > 0) {
     game.skipDecade--;
     const teamName = game.currentTeam;
-    const teamDecades = Object.keys(NBA_DATA).filter(d => d !== '1950s' && NBA_DATA[d] && NBA_DATA[d][teamName]);
-    const usedSet = new Set(game.usedCombos);
-    const otherDecades = teamDecades.filter(d => !usedSet.has(d + '|' + teamName));
-    if (otherDecades.length === 0) { finishSkip(); return; }
-    const finalDecade = otherDecades[Math.floor(Math.random() * otherDecades.length)];
+    const teamDecades = Object.keys(NBA_DATA || {}).filter(d => ALLOWED_ERAS.includes(d) && (NBA_DATA || {})[d] && (NBA_DATA || {})[d][teamName]);
+
+    if (teamDecades.length <= 1) {
+      document.getElementById('playerHint').textContent = '该球队只有一个年代,无法跳过';
+      game.skipDecade++;
+      document.getElementById('skipDecadeBtn').disabled = game.skipDecade <= 0;
+      return;
+    }
+
+    const otherDecades = teamDecades.filter(d => d !== game.currentDecade);
+    const finalDecade = otherDecades.length > 0
+      ? otherDecades[Math.floor(Math.random() * otherDecades.length)]
+      : teamDecades[0];
 
     animateReel('decadeReelText', teamDecades, id => id, () => {
       game.currentDecade = finalDecade;
@@ -531,6 +707,7 @@ function finishSkip() {
   showPlayers(game.currentTeam, game.currentDecade);
 }
 
+// ==================== PLAYER SELECTION ====================
 function setFilterTab(tab) {
   _filterTab = tab;
   document.querySelectorAll('.filter-tab').forEach(el => {
@@ -545,8 +722,7 @@ function renderPlayerGrid(team, decade) {
   const grid = document.getElementById('playerGrid');
   if (_filterTab === 'all') {
     const players = NBA_DATA[decade] ? (NBA_DATA[decade][team] || []) : [];
-    const draftedNames = game.roster.map(r => r.name);
-    let all = players.filter(p => !draftedNames.includes(p.name));
+    let all = [...players];
     all.sort((a, b) => (b.stats.pts + b.stats.reb + b.stats.ast) - (a.stats.pts + a.stats.reb + a.stats.ast));
     _topPool = all.slice(0, 20);
   }
@@ -600,7 +776,7 @@ function selectPlayer(el, name, pos, pts, reb, ast, stl, blk) {
   const emptyEligible = positions.filter(p => !game.slots[p]);
   if (emptyEligible.length === 0) {
     el.classList.remove('selected');
-    document.getElementById('playerHint').textContent = `⚠️ ${name} 的可选位置 (${positions.join('/')}) 已满！`;
+    document.getElementById('playerHint').textContent = `⚠️ ${name} 的可选位置(${positions.join('/')}) 已满!`;
     return;
   }
 
@@ -619,7 +795,7 @@ function onEmptySlotClick(pos) {
     player.assignedPos = pos;
     moveState = null;
     renderRosterBar();
-    document.getElementById('playerHint').textContent = `已移动 ${player.name} 到 ${pos}`;
+    document.getElementById('playerHint').textContent = `已移动${player.name} 到${pos}`;
   } else {
     pendingPick = null; moveState = null;
     document.querySelectorAll('.player-card.selected').forEach(c => c.classList.remove('selected'));
@@ -641,7 +817,7 @@ function onFilledSlotClick(pos) {
   if (emptyEligible.length === 0) return;
 
   moveState = { player, currentPos: pos, targetPositions: emptyEligible };
-  document.getElementById('playerHint').textContent = `点击闪烁的方框移动 ${player.name.split('-').pop()}`;
+  document.getElementById('playerHint').textContent = `点击闪烁的方框移动${player.name.split('-').pop()}`;
   renderRosterBar();
 }
 
@@ -665,7 +841,7 @@ function confirmDraftWith(pick) {
   document.getElementById('spinBtn').disabled = true;
   document.getElementById('skipTeamBtn').disabled = true;
   document.getElementById('skipDecadeBtn').disabled = true;
-  document.getElementById('playerHint').textContent = `✓ ${pick.name} → ${pick.assignedPos} 已选入！`;
+  document.getElementById('playerHint').textContent = `✅${pick.name} 到${pick.assignedPos} 已选入!`;
 
   setTimeout(() => {
     if (game.round >= MAX_ROUNDS) {
@@ -678,8 +854,8 @@ function confirmDraftWith(pick) {
   }, 800);
 }
 
+// ==================== RATING CALCULATION ====================
 function playerRating(p) {
-  // Custom players can have a fixed rating (e.g. 金霸王 team)
   if (isNum(p.customRating)) {
     return Math.round(p.customRating * 10) / 10;
   }
@@ -712,12 +888,7 @@ function playerRating(p) {
 
   return Math.min(100, Math.round((base + versatility + intangibles) * 10) / 10);
 }
-// 别名函数：修复 getPlayerRating is not defined
-// shareResult / handleShareLink / runSimulation 中调用的是 getPlayerRating，
-// 实际评分逻辑在 playerRating，这里做一层转发即可。
-function getPlayerRating(p) {
-  return playerRating(p);
-}
+
 function calcRecord(slots) {
   const roster = ['PG', 'SG', 'SF', 'PF', 'C'].map(pos => slots[pos]).filter(Boolean);
   if (roster.length === 0) return { wins: 0, losses: 82, grade: 'F', tier: '摆烂大军', color: '#ef4444', ovr: 0 };
@@ -778,30 +949,17 @@ function runSimulation() {
   html += '</div>';
   rosterDiv.innerHTML = html;
 
-  // Save to history (also pushes to cloud)
+  // Save to history
   saveToHistory();
 
-  // Show share link area if cloud enabled
+  // Show share link area
   if (API_BASE) {
     const area = document.getElementById('shareLinkArea');
     area.style.display = 'block';
     document.getElementById('shareLinkUrl').textContent = '保存到云端后显示...';
-    const slotsData = {};
-    for (const pos of POS_ORDER) {
-      const p = game.slots[pos];
-      if (p) {
-        slotsData[pos] = {
-          name: p.name, enName: p.enName || p.name,
-          pos: p.pos, positions: p.positions || [p.pos],
-          team: p.team, decade: p.decade,
-          pts: p.pts, reb: p.reb, ast: p.ast,
-          stl: p.stl || 0, blk: p.blk || 0, assignedPos: pos,
-        };
-      }
-    }
     const rosterList = POS_ORDER.map(pos => {
       const p = game.slots[pos];
-      return p ? { name: p.name, pos: p.pos, positions: p.positions || [p.pos], team: p.team, era: p.decade, pts: p.pts, reb: p.reb, ast: p.ast, stl: p.stl || 0, blk: p.blk || 0, assignedPos: pos, rating: getPlayerRating(p) } : null;
+      return p ? { name: p.name, pos: p.pos, positions: p.positions || [p.pos], team: p.team, era: p.decade, pts: p.pts, reb: p.reb, ast: p.ast, stl: p.stl || 0, blk: p.blk || 0, assignedPos: pos, rating: playerRating(p) } : null;
     });
     const teamData = { ovr: result.ovr, grade: result.grade, tier: result.tier, record: `${result.wins}-${result.losses}`, roster: rosterList };
     const shareUrl = generateShareLink(teamData);
@@ -811,6 +969,7 @@ function runSimulation() {
   if (result.wins >= 80) launchConfetti();
 }
 
+// ==================== HISTORY ====================
 function getHistory() {
   try {
     return JSON.parse(localStorage.getItem('duel_history') || '[]');
@@ -846,10 +1005,29 @@ function saveToHistory() {
   };
   history.unshift(entry);
   if (history.length > 50) history.pop();
-  localStorage.setItem('duel_history', JSON.stringify(history));
-  localStorage.setItem('duel_lastGame', JSON.stringify({
-    ...game, slots: game.slots, ovr: result.ovr,
-  }));
+
+  try {
+    const data = JSON.stringify(history);
+    if (data.length > 4 * 1024 * 1024) {
+      while (history.length > 10) {
+        history.pop();
+        const trimmed = JSON.stringify(history);
+        if (trimmed.length <= 4 * 1024 * 1024) break;
+      }
+    }
+    localStorage.setItem('duel_history', JSON.stringify(history));
+    localStorage.setItem('duel_lastGame', JSON.stringify({
+      ...game, slots: game.slots, ovr: result.ovr,
+    }));
+  } catch (e) {
+    console.warn('localStorage save failed:', e);
+    while (history.length > 10) history.pop();
+    try {
+      localStorage.setItem('duel_history', JSON.stringify(history));
+    } catch (e2) {
+      console.error('Failed to save even trimmed history:', e2);
+    }
+  }
 
   if (API_BASE) {
     saveTeamToCloud({
@@ -879,7 +1057,7 @@ function renderHistoryList() {
   const list = document.getElementById('historyList');
 
   if (history.length === 0) {
-    list.innerHTML = '<div class="no-players"><div class="icon">📋</div><p>暂无历史战绩，先去组队吧！</p></div>';
+    list.innerHTML = '<div class="no-players"><div class="icon">📋</div><p>暂无历史战绩,先去组队吧!</p></div>';
     return;
   }
 
@@ -888,31 +1066,57 @@ function renderHistoryList() {
     const rosterHtml = Object.values(roster).filter(Boolean).map(p =>
       `<span class="pos-badge" style="background:linear-gradient(135deg,var(--btn-orange),var(--orange-light));color:#fff;">${p.name.split('-').pop()}</span>`
     ).join('');
+    const sharedBadge = h.shared ? '<span class="pos-badge" style="background:linear-gradient(135deg,var(--btn-red),var(--red-light));color:#fff;font-size:10px;"> 分享</span>' : '';
+    const challengeBtn = `<button class="btn-3d" style="font-size:11px;padding:4px 12px;background:linear-gradient(135deg,var(--btn-red),var(--red-light));margin-top:6px;" onclick="challengeFromHistory(${i})">⚔️ 挑战</button>`;
     return `<div class="history-item">
       <div class="history-header">
         <span class="history-record">${h.record}</span>
         <span class="history-grade" style="color:${TEAM_GRADE_BANDS.find(b => b.grade === h.grade)?.color || '#fff'}">${h.grade}</span>
         <span class="history-tier">${h.tier}</span>
+        ${sharedBadge}
       </div>
       <div class="history-roster">${rosterHtml}</div>
       <div class="history-date">${h.date}</div>
+      ${challengeBtn}
     </div>`;
   }).join('');
 }
 
+function challengeFromHistory(index) {
+  const history = getHistory();
+  const target = history[index];
+  if (!target || !target.slots) return;
+
+  if (!game.slots || !POS_ORDER.every(pos => game.slots[pos])) {
+    window._pendingChallengeOpponent = {
+      slots: target.slots,
+      result: { record: target.record, grade: target.grade, tier: target.tier, ovr: target.ovr },
+    };
+    alert('你还没有创建队伍!先去组队,然后再回来挑战这个队伍!');
+    showScreen('screen-game');
+    return;
+  }
+
+  startChallengeAgainst({
+    slots: target.slots,
+    result: { record: target.record, grade: target.grade, tier: target.tier, ovr: target.ovr },
+  });
+}
+
+// ==================== SHARE ====================
 async function shareResult() {
   const result = calcRecord(game.slots);
   const rosterList = POS_ORDER.map(pos => {
     const p = game.slots[pos];
-    return p ? { name: p.name, pos: p.pos, positions: p.positions || [p.pos], team: p.team, era: p.decade, pts: p.pts, reb: p.reb, ast: p.ast, stl: p.stl || 0, blk: p.blk || 0, assignedPos: pos, rating: getPlayerRating(p) } : null;
+    return p ? { name: p.name, pos: p.pos, positions: p.positions || [p.pos], team: p.team, era: p.decade, pts: p.pts, reb: p.reb, ast: p.ast, stl: p.stl || 0, blk: p.blk || 0, assignedPos: pos, rating: playerRating(p) } : null;
   });
   const teamData = { ovr: result.ovr, grade: result.grade, tier: result.tier, record: `${result.wins}-${result.losses}`, roster: rosterList };
   const shareUrl = generateShareLink(teamData);
 
-  const shareText = `是男人就来单挑！\n\n${game.wins}-${game.losses} ${game.grade}级 ${game.tier}\n\n阵容：${POS_ORDER.map(pos => {
+  const shareText = `是男人就来单挑!\n\n${game.wins}-${game.losses} ${game.grade} · ${game.tier}\n\n阵容:${POS_ORDER.map(pos => {
     const p = game.slots[pos];
     return p ? `${p.name.split('-').pop()}(${pos})` : '';
-  }).filter(Boolean).join(' | ')}\n\n${shareUrl ? '挑战链接：' + shareUrl + '\n\n' : ''}是男人就来单挑，敢来挑战吗？`;
+  }).filter(Boolean).join(' | ')}\n\n${shareUrl ? '挑战链接:' + shareUrl + '\n\n' : ''}是男人就来单挑,敢来挑战吗?`;
 
   const copyText = () => {
     if (navigator.clipboard) {
@@ -928,24 +1132,25 @@ async function shareResult() {
   };
 
   copyText().then(() => {
-    alert(`战绩已复制！分享链接已生成 \n\n${shareUrl}`);
+    alert(`战绩已复制!分享链接已生成!\n\n${shareUrl}`);
   }).catch(() => {
-    alert('复制失败，请手动复制');
+    alert('复制失败,请手动复制');
   });
 }
 
 function copyShareLink() {
   const url = document.getElementById('shareLinkUrl').textContent;
   if (navigator.clipboard) {
-    navigator.clipboard.writeText(url).then(() => alert('链接已复制！'));
+    navigator.clipboard.writeText(url).then(() => alert('链接已复制!'));
   } else {
     const ta = document.createElement('textarea');
     ta.value = url; document.body.appendChild(ta); ta.select();
     document.execCommand('copy'); document.body.removeChild(ta);
-    alert('链接已复制！');
+    alert('链接已复制!');
   }
 }
 
+// ==================== CHALLENGE MODE ====================
 function openTeamSelect() {
   showScreen('screen-select');
   renderTeamSelect();
@@ -991,7 +1196,7 @@ async function renderTeamSelect() {
   allTeams.sort((a, b) => (b.date || 0) - (a.date || 0));
 
   if (allTeams.length === 0) {
-    list.innerHTML = '<div class="no-players"><div class="icon"></div><p>暂无历史球队，先去组队吧！</p></div>';
+    list.innerHTML = '<div class="no-players"><div class="icon"></div><p>暂无历史球队,先去组队吧!</p></div>';
     return;
   }
 
@@ -1056,20 +1261,17 @@ function startChallengeWithTeam(cpuSlots) {
   setTimeout(simulateNextGame, 500);
 }
 
+// ==================== SHARE LINK HANDLING ====================
 function handleShareLink() {
   const params = new URLSearchParams(window.location.search);
   const teamData = params.get('team');
   if (!teamData) return false;
 
-  // 有分享链接，进入"被挑战"模式
   const decoded = decodeTeamFromShare(teamData);
   if (decoded?.roster) {
-    // 将云端 roster 格式转换为本地格式（兼容 数组 / 对象 两种结构）
     const slots = {};
     for (const pos of POS_ORDER) {
-      const p = Array.isArray(decoded.roster)
-        ? decoded.roster.find(r => r && (r.assignedPos === pos || r.pos === pos))
-        : decoded.roster[pos];
+      const p = decoded.roster[pos] || decoded.roster.find(r => r.assignedPos === pos);
       if (p) {
         slots[pos] = {
           name: p.name, enName: p.enName || p.name,
@@ -1077,21 +1279,126 @@ function handleShareLink() {
           team: p.team || '', decade: p.era || p.decade || '',
           pts: p.pts || 0, reb: p.reb || 0, ast: p.ast || 0,
           stl: p.stl || 0, blk: p.blk || 0, assignedPos: pos,
-          rating: p.rating || getPlayerRating(p),
+          rating: p.rating || playerRating(p),
         };
       }
     }
     const result = calcRecord(slots);
     window._sharedChallengeTeam = decoded.roster;
     window._sharedChallengeInfo = { ...decoded, ...result };
-    alert(`你收到了一个挑战！\n\n${decoded.record} ${decoded.grade} ${decoded.tier}\n\n请先创建你的队伍来应战！`);
+
+    saveSharedTeamToHistory(decoded, result, slots);
+    showShareChallengeModal(decoded, result);
   }
   return true;
 }
 
+function saveSharedTeamToHistory(decoded, result, slots) {
+  const history = getHistory();
+  const exists = history.some(h => h.record === decoded.record && h.grade === decoded.grade && h.shared);
+  if (exists) return;
+
+  const entry = {
+    id: Date.now() + Math.random(),
+    record: decoded.record,
+    grade: decoded.grade,
+    tier: decoded.tier,
+    ovr: decoded.ovr,
+    slots: slots,
+    date: new Date().toLocaleString('zh-CN'),
+    shared: true,
+    shareUrl: generateShareLink({
+      ovr: result.ovr, grade: result.grade, tier: result.tier,
+      record: result.record, roster: decoded.roster
+    }),
+  };
+  history.unshift(entry);
+  if (history.length > 50) history.pop();
+  localStorage.setItem('duel_history', JSON.stringify(history));
+}
+
+function showShareChallengeModal(decoded, result) {
+  let overlay = document.getElementById('shareLinkOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'shareLinkOverlay';
+    overlay.className = 'poster-overlay';
+    document.body.appendChild(overlay);
+  }
+
+  overlay.innerHTML = `
+    <div class="poster-content" style="max-width:400px;">
+      <div class="poster-title" style="font-size:22px;">📬 挑战邀请</div>
+      <div style="font-size:28px;font-weight:800;margin:12px 0;color:var(--orange-light);">${decoded.record}</div>
+      <div style="font-size:20px;font-weight:700;color:${result.grade === 'S' ? '#a855f7' : result.grade.startsWith('A') ? '#22c55e' : '#3b82f6'};">${decoded.grade} · ${decoded.tier}</div>
+      <div style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;justify-content:center;">
+        ${POS_ORDER.map(pos => {
+          const p = decoded.roster[pos] || decoded.roster.find(r => r.assignedPos === pos);
+          if (!p) return '';
+          return `<span class="pos-badge" style="font-size:11px;padding:4px 8px;">${pos}: ${p.name}</span>`;
+        }).join('')}
+      </div>
+      <div style="margin-top:20px;display:flex;gap:12px;">
+        <button class="btn-3d" style="flex:1;background:linear-gradient(135deg,var(--btn-red),var(--red-light));" onclick="acceptChallenge()">⚔️ 接受挑战</button>
+        <button class="btn-3d" style="flex:1;" onclick="closeShareModal()">先创建队伍</button>
+      </div>
+      <div style="margin-top:12px;">
+        <button class="btn-3d" style="width:100%;background:linear-gradient(135deg,var(--blue-3d),var(--blue-light));font-size:12px;" onclick="saveAndCloseShare()">💾 保存并去创建</button>
+      </div>
+    </div>
+  `;
+  overlay.classList.add('show');
+}
+
+function acceptChallenge() {
+  closeShareModal();
+  window._pendingChallengeOpponent = {
+    slots: window._sharedChallengeInfo?.slots || {},
+    result: window._sharedChallengeInfo || {},
+  };
+  if (game.slots && POS_ORDER.every(pos => game.slots[pos])) {
+    startChallengeAgainst(window._pendingChallengeOpponent);
+  } else {
+    openTeamSelect();
+  }
+}
+
+function closeShareModal() {
+  const overlay = document.getElementById('shareLinkOverlay');
+  if (overlay) overlay.classList.remove('show');
+}
+
+function saveAndCloseShare() {
+  closeShareModal();
+}
+
+function startChallengeAgainst(opponent) {
+  const myResult = calcRecord(game.slots);
+  const oppSlots = opponent.slots;
+  const oppResult = opponent.result;
+
+  challengeState = {
+    mySlots: { ...game.slots },
+    myResult,
+    cpuSlots: { ...oppSlots },
+    cpuResult: oppResult,
+    myWins: 0,
+    cpuWins: 0,
+    games: [],
+    currentGame: 0,
+    isSharedOpponent: true,
+  };
+
+  showScreen('screen-challenge');
+  renderChallengeVS(oppResult);
+  renderChallengeGames();
+  setTimeout(simulateNextGame, 500);
+}
+
+// ==================== RANDOM TEAM ====================
 function generateRandomTeam() {
   const slots = { PG: null, SG: null, SF: null, PF: null, C: null };
-  const allDecades = Object.keys(NBA_DATA).filter(d => d !== '1950s');
+  const allDecades = Object.keys(NBA_DATA || {}).filter(d => ALLOWED_ERAS.includes(d));
   const usedCombos = new Set();
 
   for (const pos of POS_ORDER) {
@@ -1099,7 +1406,7 @@ function generateRandomTeam() {
     let attempts = 0;
     do {
       const decade = allDecades[Math.floor(Math.random() * allDecades.length)];
-      const teams = Object.keys(NBA_DATA[decade] || {});
+      const teams = Object.keys((NBA_DATA || {})[decade] || {});
       const team = teams[Math.floor(Math.random() * teams.length)];
       combo = decade + '|' + team;
       attempts++;
@@ -1107,7 +1414,7 @@ function generateRandomTeam() {
     usedCombos.add(combo);
 
     const [decade, team] = combo.split('|');
-    const players = NBA_DATA[decade]?.[team] || [];
+    const players = (NBA_DATA || {})[decade]?.[team] || [];
     if (players.length === 0) continue;
 
     const eligible = players.filter(p => {
@@ -1136,9 +1443,13 @@ function generateRandomTeam() {
   return slots;
 }
 
-let challengeState = null;
-
 function startChallenge() {
+  if (window._pendingChallengeOpponent) {
+    const opponent = window._pendingChallengeOpponent;
+    window._pendingChallengeOpponent = null;
+    startChallengeAgainst(opponent);
+    return;
+  }
   openTeamSelect();
 }
 
@@ -1156,7 +1467,7 @@ function renderChallengeVS(cpuResult) {
         <span style="font-size:8px;color:rgba(255,255,255,0.7);">${pos}</span>
       </div>`;
     }).join('');
-    return `<div style="font-size:14px;font-weight:700;margin-bottom:8px;color:var(--orange-light);">${result.wins}-${result.losses} ${result.grade}</div>${playersHtml}`;
+    return `<div style="font-size:14px;font-weight:700;margin-bottom:8px;color:var(--orange-light);">${(result.wins != null && result.losses != null) ? result.wins + '-' + result.losses : (result.record || '0-0')} ${result.grade || ''}</div>${playersHtml}`;
   }
 
   myDiv.innerHTML = `<div style="color:var(--blue-3d);font-size:12px;margin-bottom:4px;">你的队伍</div>${renderMiniTeam(challengeState.mySlots, challengeState.myResult)}`;
@@ -1171,14 +1482,17 @@ function simulateNextGame() {
   }
 
   const gameNum = challengeState.currentGame + 1;
-  const myPts = simulateGameScore(challengeState.mySlots);
-  const cpuPts = simulateGameScore(challengeState.cpuSlots);
+  const myMomentum = challengeState.myWins - challengeState.cpuWins;
+  const cpuMomentum = challengeState.cpuWins - challengeState.myWins;
+  const isMyHome = gameNum % 2 === 1;
+
+  const myPts = simulateGameScore(challengeState.mySlots, isMyHome, myMomentum);
+  const cpuPts = simulateGameScore(challengeState.cpuSlots, !isMyHome, cpuMomentum);
   const myWin = myPts > cpuPts;
 
   if (myWin) challengeState.myWins++;
   else challengeState.cpuWins++;
 
-  const totalWins = challengeState.myWins + challengeState.cpuWins;
   const isClincher = challengeState.myWins >= 4 || challengeState.cpuWins >= 4;
 
   challengeState.games.push({
@@ -1186,11 +1500,10 @@ function simulateNextGame() {
     myPts,
     cpuPts,
     myWin,
-    myTeam: challengeState.mySlots,
-    cpuTeam: challengeState.cpuSlots,
     myWins: challengeState.myWins,
     cpuWins: challengeState.cpuWins,
     isClincher,
+    isHome: isMyHome,
   });
   challengeState.currentGame++;
 
@@ -1203,16 +1516,18 @@ function simulateNextGame() {
   }
 }
 
-function simulateGameScore(slots) {
+function simulateGameScore(slots, isHome = false, momentum = 0) {
   let totalOvr = 0;
   let count = 0;
   const ratings = [];
+  const posRatings = {};
 
   for (const pos of POS_ORDER) {
     const p = slots[pos];
     if (p) {
       const r = playerRating(p);
       ratings.push(r);
+      posRatings[pos] = r;
       totalOvr += r;
       count++;
     }
@@ -1221,11 +1536,31 @@ function simulateGameScore(slots) {
 
   const avgOvr = totalOvr / count;
   const baseScore = 90 + (avgOvr - 70) * 0.6;
-  const variation = (Math.random() - 0.5) * 30;
+  const variation = (Math.random() - 0.5) * 16;
   const maxRating = Math.max(...ratings);
   const starBoost = (maxRating - avgOvr) * 0.3;
 
-  return Math.round(Math.max(70, Math.min(140, baseScore + variation + starBoost)));
+  let chemistryBonus = 0;
+  const guards = (posRatings['PG'] || 0) + (posRatings['SG'] || 0);
+  const center = posRatings['C'] || 0;
+  if (guards > 0 && center > 0) {
+    const balance = Math.min(guards / 2, center) / Math.max(guards / 2, center);
+    if (balance > 0.7) chemistryBonus += 3;
+  }
+
+  const hasPlaymaker = posRatings['PG'] && posRatings['PG'] > 85;
+  const hasScorer = (posRatings['SG'] || posRatings['SF']) && Math.max(posRatings['SG'] || 0, posRatings['SF'] || 0) > 85;
+  if (hasPlaymaker && hasScorer) chemistryBonus += 2;
+
+  const bigMen = (posRatings['PF'] || 0) + (posRatings['C'] || 0);
+  if (bigMen > 170) chemistryBonus += 2;
+
+  const homeAdvantage = isHome ? 2 : 0;
+  const momentumBonus = momentum * 1.5;
+
+  return Math.round(Math.max(70, Math.min(140,
+    baseScore + variation + starBoost + chemistryBonus + homeAdvantage + momentumBonus
+  )));
 }
 
 function renderChallengeGames() {
@@ -1237,16 +1572,17 @@ function renderChallengeGames() {
     <span style="color:var(--text-secondary);margin:0 12px;">-</span>
     <span style="color:var(--pink)">${challengeState.cpuWins}</span>
   </div>
-  <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">先赢4场获胜（最多7场）</div>`;
+  <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">先赢4场获胜(最多7场)</div>`;
 
   container.innerHTML = challengeState.games.map(g => {
     const cls = g.myWin ? 'game-win' : 'game-lose';
-    const icon = g.myWin ? '✅' : '';
+    const icon = g.myWin ? '✅' : '❌';
+    const homeIcon = g.isHome ? '🏠' : '✈️';
     const report = generateGameReport(g);
     return `<div class="challenge-game ${cls}">
       <div style="flex:1;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span class="game-num">G${g.num}</span>
+          <span class="game-num">G${g.num} ${homeIcon}</span>
           <span class="game-score">${g.myPts} - ${g.cpuPts}</span>
           <span class="game-icon">${icon}</span>
         </div>
@@ -1260,13 +1596,22 @@ function renderChallengeFinal() {
   const resultDiv = document.getElementById('challengeResult');
   const myWin = challengeState.myWins >= 4;
 
+  const winningSlots = myWin ? challengeState.mySlots : challengeState.cpuSlots;
+  const mvp = selectMVP(winningSlots);
+  const mvpHighlight = generateMVPHighlight(mvp, challengeState.games);
+
   resultDiv.innerHTML = `
     <div style="font-size:36px;font-weight:900;margin:16px 0;color:${myWin ? 'var(--green-3d)' : 'var(--red-3d)'}">
-      ${myWin ? '🏆 挑战成功！' : '💔 挑战失败'}
+      ${myWin ? '🏆 挑战成功!' : '💔 挑战失败'}
     </div>
     <div style="font-size:18px;color:var(--text-secondary);">
-      ${myWin ? `${challengeState.myWins}-${challengeState.cpuWins} 击败对手！` : `${challengeState.myWins}-${challengeState.cpuWins} 惜败对手`}
+      ${myWin ? `${challengeState.myWins}-${challengeState.cpuWins} 击败对手!` : `${challengeState.myWins}-${challengeState.cpuWins} 惜败对手`}
     </div>
+    ${mvp ? `<div style="margin:16px 0;padding:12px;background:rgba(243,156,18,0.1);border-radius:12px;border:1px solid var(--gold);">
+      <div style="font-size:14px;color:var(--gold);font-weight:700;">🏆 系列赛MVP:${mvp.name.split('-').pop()}</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">${mvpHighlight.substring(0, 80)}...</div>
+      <button class="btn-3d orange" style="margin-top:8px;font-size:12px;padding:6px 16px;" onclick="showMVPModal(window._lastMVP, window._lastMVPHighlight)">📖 查看完整高光时刻</button>
+    </div>` : ''}
     <div class="result-buttons-group" style="margin-top:16px;">
       <button class="btn-3d orange" onclick="startGame()">🔄 重新创建队伍</button>
       <button class="btn-3d dark" onclick="startChallenge()">⚔️ 再来一局挑战</button>
@@ -1274,22 +1619,26 @@ function renderChallengeFinal() {
     </div>
   `;
 
-  if (myWin) launchConfetti();
+  if (mvp) {
+    window._lastMVP = mvp;
+    window._lastMVPHighlight = mvpHighlight;
+    setTimeout(() => showMVPModal(mvp, mvpHighlight), 1500);
+  }
 }
 
+// ==================== CONFETTI ====================
 function launchConfetti() {
   const container = document.createElement('div');
   container.className = 'confetti-container';
   document.body.appendChild(container);
 
   const colors = ['#f39c12','#e74c3c','#27ae60','#3498db','#9b59b6','#f1c40f','#e67e22','#1abc9c'];
-  const shapes = ['■', '●', '▲', '★'];
+  const shapes = ['✅', '❌', '⭐', '🔥'];
 
   for (let i = 0; i < 120; i++) {
     const piece = document.createElement('div');
     piece.className = 'confetti-piece';
-      piece.textContent = shapes[Math.floor(Math.random() * shapes.length)];
-shapes[Math.floor(Math.random() * shapes.length)];
+    piece.textContent = shapes[Math.floor(Math.random() * shapes.length)];
     piece.style.left = Math.random() * 100 + '%';
     piece.style.color = colors[Math.floor(Math.random() * colors.length)];
     piece.style.fontSize = (Math.random() * 12 + 8) + 'px';
@@ -1301,6 +1650,7 @@ shapes[Math.floor(Math.random() * shapes.length)];
   setTimeout(() => container.remove(), 5000);
 }
 
+// ==================== POSTER ====================
 function showPoster() {
   const overlay = document.getElementById('posterOverlay');
   const content = document.getElementById('posterContent');
@@ -1346,14 +1696,12 @@ function downloadPoster() {
   canvas.height = H * 2;
   ctx.scale(2, 2);
 
-  // Background
   const grad = ctx.createLinearGradient(0, 0, 0, H);
   grad.addColorStop(0, '#1a1a2e');
   grad.addColorStop(1, '#16213e');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
-  // Top accent
   const topGrad = ctx.createLinearGradient(0, 0, W, 0);
   topGrad.addColorStop(0, '#f39c12');
   topGrad.addColorStop(0.5, '#e67e22');
@@ -1361,32 +1709,26 @@ function downloadPoster() {
   ctx.fillStyle = topGrad;
   ctx.fillRect(0, 0, W, 4);
 
-  // Title
   ctx.fillStyle = '#f39c12';
   ctx.font = 'bold 28px sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText('🏀 是男人就来单挑', W/2, 60);
 
-  // Record
   ctx.fillStyle = '#ffffff';
   ctx.font = 'bold 56px sans-serif';
   ctx.fillText(`${game.wins}-${game.losses}`, W/2, 140);
 
-  // Grade
   const gradeColor = game.grade === 'S' ? '#a855f7' : game.grade.startsWith('A') ? '#22c55e' : game.grade === 'B' ? '#3b82f6' : game.grade === 'C' ? '#f59e0b' : '#64748b';
   ctx.fillStyle = gradeColor;
   ctx.font = 'bold 80px sans-serif';
   ctx.fillText(game.grade, W/2, 240);
 
-  // Tier
   ctx.font = '20px sans-serif';
   ctx.fillText(game.tier, W/2, 280);
 
-  // Roster
   const slotW = 90, slotH = 90, gap = 12;
   const startX = (W - (slotW * 3 + gap * 2)) / 2;
 
-  // Top row (PG, SG)
   let x = startX + (slotW + gap);
   let y = 330;
   ['PG', 'SG'].forEach(pos => {
@@ -1394,7 +1736,6 @@ function downloadPoster() {
     x += slotW + gap;
   });
 
-  // Bottom row (SF, C, PF)
   x = startX;
   y = 440;
   ['SF', 'C', 'PF'].forEach(pos => {
@@ -1402,12 +1743,10 @@ function downloadPoster() {
     x += slotW + gap;
   });
 
-  // Footer
   ctx.fillStyle = 'rgba(255,255,255,0.5)';
   ctx.font = '14px sans-serif';
   ctx.fillText('扫码来挑战 · 看看谁更厉害', W/2, H - 40);
 
-  // Download
   const link = document.createElement('a');
   link.download = `是男人就来单挑-${game.wins}-${game.losses}.png`;
   link.href = canvas.toDataURL('image/png');
@@ -1446,8 +1785,8 @@ function drawPlayerSlot(ctx, x, y, w, h, player, pos) {
   ctx.fillText(pos, x + w/2, y + h/2 + 16);
 }
 
+// ==================== INIT ====================
 window.addEventListener('DOMContentLoaded', () => {
   initParticles();
-  // 处理分享链接
   handleShareLink();
 });
